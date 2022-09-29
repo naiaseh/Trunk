@@ -14,3 +14,4 @@ y = np.cos(x)
 print(x[0:3])
 # plt.plot(x,y)
 #plt.show()
+# here are some changes
