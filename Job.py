@@ -11,6 +11,6 @@ import numpy as np
 x = np.linspace(0,np.pi*2,100)
 y = np.cos(x)
 
-print(x[0:3])
+print(x[0:4])
 # plt.plot(x,y)
 #plt.show()
