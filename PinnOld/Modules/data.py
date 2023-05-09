@@ -13,6 +13,7 @@
 import numpy as np
 import tensorflow as tf
 from scipy.optimize import fsolve
+import matplotlib.pyplot as plt
 
 def kawaharaCosEqnsPos(U, a1, alpha, beta, sigma, N): #defining the equation
     kawaharaCosEqnsPos=np.zeros(N+2,dtype='float64') #first set all the equations equal to 0=0
@@ -35,7 +36,52 @@ def kawaharaCosEqnsPos(U, a1, alpha, beta, sigma, N): #defining the equation
     kawaharaCosEqnsPos[N+1]=-a1+a[1] #for the last equation, linearize to obtain an equation for speed
     return kawaharaCosEqnsPos
 
-def simulate_kdv(n_samples, phi_function, boundary_function, length, time, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_kdv(n_samples, phi_function, boundary_function, length, time, xstart,random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+    """
+    Simulate the heat equation in 1D with a given initial condition and Dirichlet boundary conditions.
+    Args:
+        n_samples (int): number of samples to generate
+        phi_function (function): Function that returns the initial condition of the heat equation on u.
+        boundary_function (function): Function that returns the boundary condition of the heat equation on u.
+        length (float): Length of the domain.
+        time (float): Time frame of the simulation.
+        random_seed (int, optional): Random seed for reproducibility. Defaults to 42.
+        dtype (tf.dtype, optional): Data type of the samples. Defaults to tf.float32.
+
+    Returns:
+        tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]: Samples of the heat equation. Returns a tuple of tensors (equation_samples, initial_samples, boundary_samples).
+    """
+
+
+    r = np.random.RandomState(random_seed)
+    t = r.uniform(0, time, (n_samples, 1))
+    x = r.uniform(xstart, length, (n_samples, 1))
+    tx_eqn = np.concatenate((t, x), axis = 1)
+
+    t_init = np.zeros((n_samples, 1))
+    x_init = r.uniform(xstart, length, (n_samples, 1))
+    tx_init = np.concatenate((t_init, x_init), axis = 1)
+
+    t_boundary = r.uniform(0, time, (n_samples, 1))
+    x_boundary = np.ones((n_samples//2, 1))*length
+    x_boundary = np.append(x_boundary, np.ones((n_samples - n_samples//2, 1))*xstart, axis=0)
+    tx_boundary = np.concatenate((t_boundary, x_boundary), axis = 1)
+
+    tx_eqn = tf.convert_to_tensor(tx_eqn, dtype = dtype)
+    tx_init = tf.convert_to_tensor(tx_init, dtype = dtype)
+    tx_boundary = tf.convert_to_tensor(tx_boundary, dtype = dtype)
+
+    y_eqn = tf.zeros((n_samples, 1))
+    y_phi = phi_function(tx_init)
+    y_boundary = boundary_function(tx_boundary)
+
+    # y_eqn = tf.convert_to_tensor(y_eqn, dtype = dtype)
+    # y_phi = tf.convert_to_tensor(y_phi, dtype = dtype)
+    # y_boundary = tf.convert_to_tensor(y_boundary, dtype = dtype)
+
+    return (tx_eqn, y_eqn), (tx_init, y_phi), (tx_boundary, y_boundary)
+
+def simulate_kdv_continuation(n_samples, phi_function, boundary_function, length, time, cFinal, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
     """
     Simulate the heat equation in 1D with a given initial condition and Dirichlet boundary conditions.
     Args:
@@ -54,11 +100,13 @@ def simulate_kdv(n_samples, phi_function, boundary_function, length, time, rando
     r = np.random.RandomState(random_seed)
     t = r.uniform(0, time, (n_samples, 1))
     x = r.uniform(0, length, (n_samples, 1))
-    tx_eqn = np.concatenate((t, x), axis = 1)
+    c = r.uniform(0, cFinal, (n_samples, 1))
+    txc_eqn = np.concatenate((t, x, c), axis = 1)
 
     t_init = np.zeros((n_samples, 1))
     x_init = r.uniform(0, length, (n_samples, 1))
-    tx_init = np.concatenate((t_init, x_init), axis = 1)
+    c_init = r.uniform(0, cFinal, (n_samples, 1))
+    txc_init = np.concatenate((t_init, x_init, c_init), axis = 1)
 
     t_boundary = r.uniform(0, time, (n_samples, 1))
     x_boundary = np.ones((n_samples//2, 1))*length
@@ -114,14 +162,14 @@ def simulate_travelling_kawahara(n_samples, length, time, random_seed = 42, dtyp
     tx_boundary = tf.convert_to_tensor(tx_boundary, dtype = dtype)
 
     thirdAlpha = 1.
-    fifthBeta =1/4
+    fifthBeta = 1/4
     nonlinSigma = 1.
     c = thirdAlpha - fifthBeta
     # L = (np.pi)*2
     # spacext = tx[:, 1:2]
     conSteps =1500 # number of continuation steps
     a1=1.0e-6 # beginning amplitude
-    aF=1.0e-2 # ending amplitude
+    aF=0.001 # ending amplitude
     aS = np.linspace(a1,aF,conSteps) # vector of free parameter a1 (amplitudes)
     velocities=np.zeros(conSteps) # Tracks all the velocities for bifurcation branch
     NN=21 # number of modes at which the Fourier series is truncated 
@@ -142,15 +190,18 @@ def simulate_travelling_kawahara(n_samples, length, time, random_seed = 42, dtyp
 
     # generating the solution in real space made of cosines
         # phi = soln[0]*np.cos(0.*(tx[:, 1:2]-V*tx[:, 0:1]))
-        phi_init = soln[0]*np.cos(0.*(tx_init[:, 1:2]-V*tx_init[:, 0:1]))
-        phi_boundary = soln[0]*np.cos(0.*(tx_boundary[:, 1:2]-V*tx_boundary[:, 0:1]))
+        phi_init = soln[0]*np.cos(0.*(tx_init[:, 1:2]-0*tx_init[:, 0:1]))
+        phi_boundary = soln[0]*np.cos(0.*(tx_boundary[:, 1:2]-0*tx_boundary[:, 0:1]))
+        u_exact = soln[0]*np.cos(0.*(tx_init[:, 1:2])-0*tx_eqn[:, 0:1])
         # phix = -0.*soln[0]*np.sin(0.*(tx[:, 1:2]-V*tx[:, 0:1]))
         ii = 0.
         for aii in soln[1:]:
             ii = ii+1.
             # phi = phi + aii*np.cos(ii*(tx[:, 1:2]-V*tx[:, 0:1]))
-            phi_init = phi_init + aii*np.cos(ii*(tx_init[:, 1:2]-V*tx_init[:, 0:1]))
-            phi_boundary = phi_boundary + aii*np.cos(ii*(tx_boundary[:, 1:2]-V*tx_boundary[:, 0:1]))
+            phi_init = phi_init + aii*np.cos(ii*(tx_init[:, 1:2]-0*tx_init[:, 0:1]))
+            phi_boundary = phi_boundary + aii*np.cos(ii*(tx_boundary[:, 1:2]-0*tx_boundary[:, 0:1]))
+            u_exact = u_exact + aii*np.cos(ii*(tx_eqn[:, 1:2]-0*tx_eqn[:, 0:1]))
+
             # phix = phix - (ii)*aii*np.sin(ii*(tx[:, 1:2]-V*tx[:, 0:1]))
 
 
@@ -158,6 +209,9 @@ def simulate_travelling_kawahara(n_samples, length, time, random_seed = 42, dtyp
 
 
         velocities[k]=solution[0]
+    plt.plot(tx_eqn[:,1:2],u_exact,'.')
+    plt.plot(tx_boundary[:,1:2],phi_boundary,'.')
+    plt.show()
 
     y_eqn = tf.zeros((n_samples, 1))
     y_phi = phi_init
@@ -167,4 +221,4 @@ def simulate_travelling_kawahara(n_samples, length, time, random_seed = 42, dtyp
     # y_phi = tf.convert_to_tensor(y_phi, dtype = dtype)
     # y_boundary = tf.convert_to_tensor(y_boundary, dtype = dtype)
 
-    return (tx_eqn, y_eqn), (tx_init, y_phi), (tx_boundary, y_boundary)
+    return (tx_eqn, y_eqn, u_exact), (tx_init, y_phi), (tx_boundary, y_boundary), solution
