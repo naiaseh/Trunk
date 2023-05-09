@@ -11,6 +11,7 @@
 
 from typing import Dict
 import tensorflow as tf
+import matplotlib.pyplot as plt
 import numpy as np
 import time
 
@@ -56,6 +57,7 @@ class KdvPinn(tf.keras.Model):
     super().__init__()
     self.network = network
     self.k = k
+
 
 
   def fit(self, inputs, labels, epochs, optimizer, u_exact=None, progress_interval=500) -> dict[str, list[float]]:
@@ -157,7 +159,7 @@ class KdvPinn(tf.keras.Model):
 
     
     # Calculate PDE residual
-    pde_residual = du_dt + d3u_dx3 + (self.k) * du_dx * u
+    pde_residual = du_dt + d3u_dx3 + du_dx * ((self.k) * u ) # add -self.c in bracket to move into the frame 
 
     n_i = tf.shape(tx_init)[0]
     tx_ib = tf.concat([tx_init, tx_bound], axis=0)
@@ -198,7 +200,7 @@ class travelKawaharaPinn(tf.keras.Model):
 
   """
 
-  def __init__(self, network: "tf.keras.Model", alpha: float = 1.0,beta: float = 1.0/4.0,sigma: float = 2.0) -> None:
+  def __init__(self, network: "tf.keras.Model", alpha: float = 1.0,beta: float = 1/4 ,sigma: float = 2.0) -> None:
     """
     Args:
       network: A keras model representing the backbone neural network.
@@ -232,12 +234,13 @@ class travelKawaharaPinn(tf.keras.Model):
     start_time = time.time()
     for epoch in range(epochs):
       with tf.GradientTape() as tape:
-        u, residual, u_init, u_bndry = self.call(inputs) #question residual, not u right?
+        u, residual, u_init, u_bndry = self.call(inputs) 
 
         loss_residual = tf.reduce_mean(tf.square(residual))
         loss_init = tf.reduce_mean(tf.square(u_init - labels[0]))
         loss_boundary = tf.reduce_mean(tf.square(u_bndry - labels[1]))
-        loss = loss_residual + loss_init + loss_boundary
+        loss = loss_residual + loss_init + loss_boundary 
+        
 
       grads = tape.gradient(loss, self.trainable_weights)
       optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -288,8 +291,6 @@ class travelKawaharaPinn(tf.keras.Model):
     d5u_dx5 = g5.batch_jacobian(d4u_dx4, tx)[..., 1]
 
     return u, du_dt, du_dx, d3u_dx3, d5u_dx5
-    
-
   
   def call(self, inputs):
     """
@@ -312,10 +313,13 @@ class travelKawaharaPinn(tf.keras.Model):
     tx_bound = inputs[2]
 
     u, du_dt, du_dx, d3u_dx3, d5u_dx5 = self.input_gradient(tx_equation)
+    print('Iwas executed')
+
 
     
     # Calculate PDE residual
-    pde_residual = du_dt - self.alpha * d3u_dx3 + (self.beta) * d5u_dx5 * self.sigma * u * du_dx
+    pde_residual = + self.alpha * d3u_dx3 + (self.beta) * d5u_dx5 + (self.sigma * u + 0.7500009999995948)* du_dx
+    # set du_dt - du_dt to zero if it doesn't work, set beta to 0
 
     n_i = tf.shape(tx_init)[0]
     tx_ib = tf.concat([tx_init, tx_bound], axis=0)
