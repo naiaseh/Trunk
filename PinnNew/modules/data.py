@@ -115,7 +115,7 @@ def simulate_wave(n_samples, phi_function, psi_function, boundary_function, x_st
 
     return (tx_eqn, y_eqn), (tx_init, y_phi, y_psi), (tx_boundary, y_boundary)
 
-def simulate_kdv(n_samples, phi_function, boundary_function, xstart, length, time, n_init=None, n_bndry=None,random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_kdv(n_samples, solver_function, init_function, xstart, length, time, nx = 256, nt = 201, shuffle_bnd = False, n_init=None, n_bndry=None,random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
     """
     Simulate the KdV equation in 1D with a given initial condition and Dirichlet boundary conditions.
     Args:
@@ -138,30 +138,57 @@ def simulate_kdv(n_samples, phi_function, boundary_function, xstart, length, tim
     assert n_bndry % 2 == 0, "n_bndry must be even"
 
     r = np.random.RandomState(random_seed)
-    t = r.uniform(0, time, (n_samples, 1))
-    x = r.uniform(xstart, length, (n_samples, 1))
-    tx_eqn = np.concatenate((t, x), axis = 1)
-
+    # t = r.uniform(0, time, (n_samples, 1))
+    # x = r.uniform(xstart, length, (n_samples, 1))
+    # tx_eqn = np.concatenate((t, x), axis = 1)
+    x_flat = np.linspace(xstart, length, nx)
+    t_flat = np.linspace(0, time, nt)
+    x_flat = tf.convert_to_tensor(x_flat, dtype = dtype)
+    t_flat = tf.convert_to_tensor(t_flat, dtype = dtype)
+    t_, x_ = tf.meshgrid(t_flat, x_flat)    
+    tx_eqn = tf.concat((tf.reshape(t_, (-1, 1)), tf.reshape(x_, (-1, 1))), axis=1)
+    
     t_init = tf.zeros((n_init, 1), dtype=dtype)
     x_init = tf.random.uniform((n_init, 1), xstart, length, dtype=dtype, seed=random_seed)
     tx_init = tf.concat((t_init, x_init), axis=1)
 
-    t_boundary = tf.random.uniform((n_bndry, 1), 0, time, dtype=dtype, seed=random_seed)
-    x_boundary = tf.ones((n_bndry//2, 1), dtype=dtype) * length
-    x_boundary = tf.concat([x_boundary, tf.ones((n_bndry//2, 1), dtype=dtype)*xstart], axis=0)
-    x_boundary = tf.random.shuffle(x_boundary, seed=random_seed)
-    tx_boundary = tf.concat([t_boundary, x_boundary], axis=1)
+    # t_boundary = tf.random.uniform((n_bndry, 1), 0, time, dtype=dtype, seed=random_seed)
+    # x_boundary = tf.ones((n_bndry//2, 1), dtype=dtype) * xstart
+    # x_boundary = tf.concat([x_boundary, tf.ones((n_bndry//2, 1) , dtype=dtype) * length], axis=0)
+    # x_boundary = tf.random.shuffle(x_boundary, seed=random_seed)
+    x_boundary_start = tf.cast(tf.reshape([xstart] * (nt), (-1, 1)), dtype = dtype)
+    x_boundary_end = tf.cast(tf.reshape([length] * (nt), (-1, 1)), dtype = dtype)
+    tx_boundary_start = tf.concat((t_flat[:, None], x_boundary_start), axis=1)
+    tx_boundary_end = tf.concat((t_flat[:, None], x_boundary_end), axis=1)
 
-
+    # Are these 3 lines necessary?
     tx_eqn = tf.convert_to_tensor(tx_eqn, dtype = dtype)
     tx_init = tf.convert_to_tensor(tx_init, dtype = dtype)
-    tx_boundary = tf.convert_to_tensor(tx_boundary, dtype = dtype)
+    tx_boundary_start = tf.convert_to_tensor(tx_boundary_start, dtype = dtype)
+    tx_boundary_end = tf.convert_to_tensor(tx_boundary_end, dtype = dtype)
+    
+    #sample points
+    samples_indices = tf.random.shuffle(tf.range(tf.shape(tx_eqn)[0], dtype=tf.int32), seed=random_seed)[:n_samples]
+    boundary_indices = tf.random.shuffle(tf.range(tf.shape(tx_boundary_start)[0], dtype=tf.int32), seed=random_seed)[:n_bndry]
+    init_indices = tf.random.shuffle(tf.range(tf.shape(tx_init)[0], dtype=tf.int32), seed=random_seed)[:n_init]
 
     y_eqn = tf.zeros((n_samples, 1), dtype=dtype)
-    y_phi = phi_function(tx_init)
-    y_boundary = boundary_function(tx_boundary)
+    y_init = init_function(tx_init)
+    y_phi = solver_function(tx_eqn,nx,nt)
+    y_phi_matrix = tf.reshape(y_phi,x_.shape)
+    y_boundary = tf.reshape(y_phi_matrix[0, :], (-1, 1)) 
+    
+    # shuffle 
+    tx_eqn = tf.gather(tx_eqn, samples_indices)
+    # u_samples = tf.gather(u_samples, samples_indices) # commented for now
+    tx_boundary_start = tf.gather(tx_boundary_start, boundary_indices)
+    tx_boundary_end = tf.gather(tx_boundary_end, boundary_indices)
+    y_boundary = tf.gather(y_boundary, boundary_indices)
+    tx_init = tf.gather(tx_init, init_indices)
+    y_init = tf.gather(y_init, init_indices)
+        
 
-    return (tx_eqn, y_eqn), (tx_init, y_phi), (tx_boundary, y_boundary)
+    return (tx_eqn, y_eqn), (tx_init, y_init), (tx_boundary_start, y_boundary), (tx_boundary_end, y_boundary)
 
 def simulate_heat(n_samples, phi_function, boundary_function, length, time, n_init=None, n_bndry=None, random_seed=2, dtype=tf.float32) \
     -> Tuple[Tuple[tf.Tensor, tf.Tensor], Tuple[tf.Tensor, tf.Tensor], Tuple[tf.Tensor, tf.Tensor]]:

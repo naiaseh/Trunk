@@ -849,7 +849,8 @@ class KdVPinn(tf.keras.Model):
 
         tx_samples = inputs[0]
         tx_init = inputs[1]
-        tx_bnd = inputs[2]
+        tx_bnd_start = inputs[2]
+        tx_bnd_end = inputs[3]
         with tf.GradientTape(watch_accessed_variables=False) as tape3:
             tape3.watch(tx_samples)
             with tf.GradientTape(watch_accessed_variables=False) as tape2:
@@ -867,12 +868,17 @@ class KdVPinn(tf.keras.Model):
 
         lhs_samples = du_dt + self.k * du_dx * u_samples + d3u_dx3
 
-        tx_ib = tf.concat([tx_init, tx_bnd], axis=0)
-        u_ib = self.backbone(tx_ib, training=training)
-        u_initial = u_ib[:tf.shape(tx_init)[0]]
-        u_bnd = u_ib[tf.shape(tx_init)[0]:]
+        # tx_ib = tf.concat([tx_init, tx_bnd], axis=0)
+        # u_ib = self.backbone(tx_ib, training=training)
+        # u_initial = u_ib[:tf.shape(tx_init)[0]]
+        # u_bnd = u_ib[tf.shape(tx_init)[0]:]
+        u_initial = self.backbone(tx_init, training=training)
+        tx_bnd = tf.concat([tx_bnd_start, tx_bnd_end], axis=0)
+        u_bnd = self.backbone(tx_bnd, training=training)
+        u_bnd_start_pred = u_bnd[:tf.shape(tx_bnd_start)[0]]
+        u_bnd_end_pred = u_bnd[tf.shape(tx_bnd_start)[0]:]
 
-        return u_samples, lhs_samples, u_initial, u_bnd
+        return u_samples, lhs_samples, u_initial, u_bnd_start_pred, u_bnd_end_pred
 
     @tf.function
     def train_step(self, data):
@@ -887,14 +893,14 @@ class KdVPinn(tf.keras.Model):
         """
 
         inputs, outputs = data
-        u_samples_exact, rhs_samples_exact, u_initial_exact, u_bnd_exact = outputs
+        u_samples_exact, rhs_samples_exact, u_initial_exact, _, _ = outputs
 
         with tf.GradientTape() as tape:
-            u_samples, lhs_samples, u_initial, u_bnd = self(inputs, training=True)
+            u_samples, lhs_samples, u_initial, u_bnd_start_pred, u_bnd_end_pred = self(inputs, training=True)
 
             loss_residual = self.res_loss(rhs_samples_exact, lhs_samples)
             loss_initial = self.init_loss(u_initial_exact, u_initial)
-            loss_boundary = self.bnd_loss(u_bnd_exact, u_bnd)
+            loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
             loss = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial + \
                 self._loss_boundary_weight * loss_boundary
 
@@ -921,13 +927,13 @@ class KdVPinn(tf.keras.Model):
         """
 
         inputs, outputs = data
-        u_samples_exact, rhs_samples_exact, u_initial_exact, u_bnd_exact = outputs
+        u_samples_exact, rhs_samples_exact, u_initial_exact, u_bnd_start_exact, u_bnd_end_exact = outputs
 
-        u_samples, lhs_samples, u_initial, u_bnd = self(inputs, training=False)
+        u_samples, lhs_samples, u_initial, _, _ = self(inputs, training=False)
 
         loss_residual = self.res_loss(rhs_samples_exact, lhs_samples)
         loss_initial = self.init_loss(u_initial_exact, u_initial)
-        loss_boundary = self.bnd_loss(u_bnd_exact, u_bnd)
+        loss_boundary = self.bnd_loss(u_bnd_start_exact, u_bnd_end_exact)
         loss = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial + \
             self._loss_boundary_weight * loss_boundary
 
