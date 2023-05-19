@@ -927,13 +927,12 @@ class KdVPinn(tf.keras.Model):
         """
 
         inputs, outputs = data
-        u_samples_exact, rhs_samples_exact, u_initial_exact, u_bnd_start_exact, u_bnd_end_exact = outputs
-
-        u_samples, lhs_samples, u_initial, _, _ = self(inputs, training=False)
+        u_samples_exact, rhs_samples_exact, u_initial_exact, _, _ = outputs
+        u_samples, lhs_samples, u_initial, u_bnd_start, u_bnd_end = self(inputs, training=False)
 
         loss_residual = self.res_loss(rhs_samples_exact, lhs_samples)
         loss_initial = self.init_loss(u_initial_exact, u_initial)
-        loss_boundary = self.bnd_loss(u_bnd_start_exact, u_bnd_end_exact)
+        loss_boundary = self.bnd_loss(u_bnd_start, u_bnd_end)
         loss = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial + \
             self._loss_boundary_weight * loss_boundary
 
