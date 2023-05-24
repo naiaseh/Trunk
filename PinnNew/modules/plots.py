@@ -7,7 +7,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.widgets import Slider, Button
 import numpy as np
 import tensorflow as tf
-from modules.models import LOSS_RESIDUAL, LOSS_BOUNDARY, LOSS_INITIAL, MEAN_ABSOLUTE_ERROR
+from modules.models import LOSS_RESIDUAL, LOSS_BOUNDARY, LOSS_INITIAL, LOSS_DUDT, MEAN_ABSOLUTE_ERROR
 
 
 def plot_wave_model_slider(model, x_start, length, time, figsize=(10,5), show=True) -> None:
@@ -155,13 +155,15 @@ def plot_burgers_model(model, save_path = None, show=True) -> None:
     if show:
         plt.show()
 
-def plot_KdV_model(model, xstart,length, time, u_exact = None, save_path = None, show=True) -> None:
+def plot_KdV_model(model, xstart,length, time, lim1=-1, lim2 = 1, u_exact = None, save_path = None, show=True) -> None:
     """
-    Plot the model predictions for the heat equation.
+    Plot the model predictions for the kdv equation.
     Args:
         model: A trained HeatPinn model.
+        xstart: start of the domain
         length: The length of the domain.
         time: The time frame of the simulation.
+        u_exact: the exact solution
         save_path: The path to save the plot to.
     """
     num_test_samples = 1000
@@ -181,7 +183,7 @@ def plot_KdV_model(model, xstart,length, time, u_exact = None, save_path = None,
     plt.ylabel('x')
     cbar = plt.colorbar(pad=0.05, aspect=10)
     cbar.set_label('u(t,x)')
-    cbar.mappable.set_clim(-1, 1)
+    cbar.mappable.set_clim(lim1, lim2)
     # plot u(t=const, x) cross-sections
     t_cross_sections = [0, time/4, time/2, 3*time/4, time]
     for i, t_cs in enumerate(t_cross_sections):
@@ -355,6 +357,9 @@ def plot_training_loss(history, x_scale = "linear", y_scale = "linear", save_pat
     if LOSS_RESIDUAL in history:
         if len(history[LOSS_RESIDUAL]) > 0:
             plt.plot(history[LOSS_RESIDUAL], label='residual loss', alpha=0.8)
+    if LOSS_DUDT in history:
+        if len(history[LOSS_DUDT]) > 0:
+            plt.plot(history[LOSS_DUDT], label='dudt loss', alpha=0.8)
     if MEAN_ABSOLUTE_ERROR in history:
         if len(history[MEAN_ABSOLUTE_ERROR]) > 0:
             plt.plot(history[MEAN_ABSOLUTE_ERROR], label='mean absolute error', alpha = 0.8)

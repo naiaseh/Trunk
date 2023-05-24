@@ -12,6 +12,7 @@ LOSS_BOUNDARY = "loss_boundary"
 LOSS_INITIAL = "loss_initial"
 LOSS_RESIDUAL = "loss_residual"
 MEAN_ABSOLUTE_ERROR = "mean_absolute_error"
+LOSS_DUDT = "loss_dudt"
 
 def create_history_dictionary() -> dict:
     """
@@ -25,6 +26,22 @@ def create_history_dictionary() -> dict:
         LOSS_BOUNDARY: [],
         LOSS_INITIAL: [],
         LOSS_RESIDUAL: [],
+        MEAN_ABSOLUTE_ERROR: []
+    }
+
+def create_history_dictionary_Kawahara_custom() -> dict:
+    """
+    Creates a history dictionary.
+
+    Returns:
+        The history dictionary.
+    """
+    return {
+        LOSS_TOTAL: [],
+        LOSS_BOUNDARY: [],
+        LOSS_INITIAL: [],
+        LOSS_RESIDUAL: [],
+        LOSS_DUDT: [],
         MEAN_ABSOLUTE_ERROR: []
     }
 
@@ -1884,7 +1901,7 @@ class TransportEquation(tf.keras.models.Model):
 
 class travelKawaharaPINN(tf.keras.models.Model):
 
-    def __init__(self, backbone, c, alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, loss_residual_weight=1., loss_initial_weight=1., loss_boundary_weight=1., **kwargs):
+    def __init__(self, backbone, c, alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, loss_residual_weight=1., loss_initial_weight=1., loss_boundary_weight=1.,  loss_dudt_weight=1., **kwargs):
         """
         Travelling Kawahara model.
 
@@ -1909,16 +1926,20 @@ class travelKawaharaPINN(tf.keras.models.Model):
                                                 name="loss_initial_weight")
         self._loss_boundary_weight = tf.Variable(loss_boundary_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
                                                  name="loss_boundary_weight")
+        self._loss_dudt_weight = tf.Variable(loss_dudt_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                 name="loss_dudt_weight")
         self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
         self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
         self.loss_initial_tracker = tf.keras.metrics.Mean(name=LOSS_INITIAL)
         self.loss_boundary_tracker = tf.keras.metrics.Mean(name=LOSS_BOUNDARY)
+        self.loss_dudt_tracker = tf.keras.metrics.Mean(name=LOSS_DUDT)
         self.mae_tracker = tf.keras.metrics.MeanAbsoluteError(name=MEAN_ABSOLUTE_ERROR)
         self.res_loss = tf.keras.losses.MeanSquaredError()
         self.init_loss = tf.keras.losses.MeanSquaredError()
         self.bnd_loss = tf.keras.losses.MeanSquaredError()
+        self.dudt_loss = tf.keras.losses.MeanSquaredError()
 
-    def set_loss_weights(self, loss_residual_weight, loss_initial_weight, loss_boundary_weight):
+    def set_loss_weights(self, loss_residual_weight, loss_initial_weight, loss_boundary_weight, loss_dudt_weight):
         """
         Sets the loss weights.
 
@@ -1926,10 +1947,12 @@ class travelKawaharaPINN(tf.keras.models.Model):
             loss_residual_weight: The weight of the residual loss. Defaults to 1.
             loss_initial_weight: The weight of the initial loss. Defaults to 1.
             loss_boundary_weight: The weight of the boundary loss. Defaults to 1.
+            loss_dudt_weight: The weight of the du_dt loss. Defaults to 1.
         """
         self._loss_residual_weight.assign(loss_residual_weight)
         self._loss_initial_weight.assign(loss_initial_weight)
         self._loss_boundary_weight.assign(loss_boundary_weight)
+        self._loss_dudt_weight.assign(loss_dudt_weight)
 
     @tf.function
     def call(self, inputs, training=False):
@@ -1970,7 +1993,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
         u_bnd = self.backbone(tx_bnd, training=training)
 
 
-        return u_colloc, residual, u_init, u_bnd
+        return u_colloc, residual, u_init, u_bnd, u_t
     
     @tf.function
     def train_step(self, data):
@@ -1980,26 +2003,28 @@ class travelKawaharaPINN(tf.keras.models.Model):
         Args:
             data: The data to train on. Should be a list of inputs and outputs: \
                 [x, y], where x is a list of tensors: [tx_colloc, tx_init, tx_bnd] and y is \
-                    a list of tensors: [u_colloc, residual, u_init, u_bnd]
+                    a list of tensors: [u_colloc, residual, u_init, u_bnd, dudt]
         """
 
         x, y = data
-        u_colloc, residual, u_init, y_boundary = y
+        u_colloc, residual, u_init, y_boundary, dudt = y
         with tf.GradientTape(persistent=False) as tape:
-            u_colloc_pred, residual_pred, u_init_pred, u_bnd_pred = self(
+            u_colloc_pred, residual_pred, u_init_pred, u_bnd_pred, dudt_pred = self(
                 x, 
                 training=True)
             loss_residual = self.res_loss(residual, residual_pred)
             loss_initial = self.init_loss(u_init, u_init_pred)
             loss_boundary = self.bnd_loss(y_boundary, u_bnd_pred)
+            loss_dudt = self.dudt_loss(dudt, dudt_pred)
             loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial \
-                + self._loss_boundary_weight * loss_boundary
+                + self._loss_boundary_weight * loss_boundary + self._loss_dudt_weight * loss_dudt
         gards = tape.gradient(loss_total, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gards, self.trainable_variables))
 
         self.loss_initial_tracker.update_state(loss_initial)
         self.loss_boundary_tracker.update_state(loss_boundary)
         self.loss_residual_tracker.update_state(loss_residual)
+        self.loss_dudt_tracker.update_state(loss_dudt)
         self.loss_total_tracker.update_state(loss_total)
         self.mae_tracker.update_state(u_colloc, u_colloc_pred)
 
@@ -2012,23 +2037,25 @@ class travelKawaharaPINN(tf.keras.models.Model):
         Args:
             data: The data to test on. Should be a list of inputs and outputs: \
                 [x, y], where x is a list of tensors: [tx_colloc, tx_init, tx_bnd] and y is \
-                    a list of tensors: [u_colloc, residual, u_init, u_bnd]
+                    a list of tensors: [u_colloc, residual, u_init, u_bnd, dudt]
         """
 
         x, y = data
 
-        u_colloc, residual, u_init, y_boundary = y
-        u_colloc_pred, residual_pred, u_init_pred, u_bnd_pred = self(
+        u_colloc, residual, u_init, y_boundary, dudt = y
+        u_colloc_pred, residual_pred, u_init_pred, u_bnd_pred, dudt_pred = self(
             x)
         loss_residual = self.res_loss(residual, residual_pred)
         loss_initial = self.init_loss(u_init, u_init_pred)
         loss_boundary = self.bnd_loss(y_boundary, u_bnd_pred)
+        loss_dudt = self.dudt_loss(dudt, dudt_pred)
         loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial \
-            + self._loss_boundary_weight * loss_boundary
+            + self._loss_boundary_weight * loss_boundary + self._loss_dudt_weight * loss_dudt
 
         self.loss_initial_tracker.update_state(loss_initial)
         self.loss_boundary_tracker.update_state(loss_boundary)
         self.loss_residual_tracker.update_state(loss_residual)
+        self.loss_dudt_tracker.update_state(loss_dudt)
         self.loss_total_tracker.update_state(loss_total)
         self.mae_tracker.update_state(u_colloc, u_colloc_pred)
 
@@ -2048,7 +2075,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
             A dictionary containing the history of the training.
         """
 
-        history = create_history_dictionary()
+        history = create_history_dictionary_Kawahara_custom()
         
         for epoch in range(epochs):
             metrs = self.train_step([inputs, outputs])
@@ -2056,7 +2083,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
                 history[key].append(value.numpy())
 
             if epoch % print_every == 0:
-                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}, Loss Boundary: {metrs['loss_boundary']:0.4f}, MAE: {metrs['mean_absolute_error']:0.4f}")
+                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}, Loss Boundary: {metrs['loss_boundary']:0.4f}, Loss Dudt: {metrs['loss_dudt']:0.4f}, MAE: {metrs['mean_absolute_error']:0.4f}")
                 
             #reset metrics
             for m in self.metrics:
@@ -2070,5 +2097,5 @@ class travelKawaharaPINN(tf.keras.models.Model):
         Returns the metrics to track.
         """
         return [self.loss_total_tracker, self.loss_residual_tracker, self.loss_initial_tracker, \
-            self.loss_boundary_tracker, self.mae_tracker]
+            self.loss_boundary_tracker, self.loss_dudt_tracker, self.mae_tracker]
 
