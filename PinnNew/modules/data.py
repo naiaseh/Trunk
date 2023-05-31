@@ -558,23 +558,28 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, random_seed = 42,
   
 
     
-    t = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
-    x = tf.random.uniform((n_samples, 1), x_start, length, dtype=dtype, seed=random_seed)
-    tx_eqn = tf.concat([t, x], axis=1)
+    # t = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
+    # t = tf.ones((n_samples, 1), dtype=dtype)
+    # x = tf.random.uniform((n_samples, 1), x_start, length, dtype=dtype, seed=random_seed)
+    # x = tf.sort(x, axis=0, direction='ASCENDING', name=None)
+    # t = tf.sort(t, axis=0, direction='ASCENDING', name=None)
+    
     
     t_init = tf.zeros((n_samples, 1), dtype=dtype)
     x_init = tf.random.uniform((n_samples, 1), x_start, length, seed=random_seed, dtype=dtype)
+    # x_init = tf.sort(x_init, axis=0, direction='ASCENDING', name=None)
     tx_init = tf.concat([t_init, x_init], axis=1)
-    # y_init = init_function(tx_init)
 
-    t_boundary = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
-    bnd_start = tf.ones((n_samples//2, 1), dtype=dtype)*x_start
-    bnd_end = tf.ones((n_samples//2, 1), dtype=dtype)*length
-    x_bnd = tf.concat([bnd_start, bnd_end], axis=0)
+    # t_boundary = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
+    # t_boundary = tf.sort(t_boundary, axis=0, direction='ASCENDING', name=None)
+    # t_boundary = tf.ones((n_samples, 1), dtype=dtype)
+    # t_boundary = tf.sort(t_boundary, axis=0, direction='ASCENDING', name=None)
+    bnd_start = tf.ones((n_samples, 1), dtype=dtype)*x_start
+    bnd_end = tf.ones((n_samples, 1), dtype=dtype)*length
+    # x_boundary = tf.concat([bnd_start, bnd_end], axis=0)
+    # x_boundary = tf.random.shuffle(x_boundary, seed=random_seed)
 
-    tx_boundary = tf.concat([t_boundary, x_bnd], axis=1)
-    tx_boundary = tf.random.shuffle(tx_boundary, seed=random_seed)
-    # y_boundary = boundary_function(tx_boundary)
+    
 
     thirdAlpha = 1.
     fifthBeta = 1/4
@@ -596,28 +601,64 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, random_seed = 42,
         soln = solution[1::] # all the As (excludes speed)
         V = solution[0]
         uguess = np.concatenate((V,solution[1],aS[k],solution[3::]),axis=None) #update initial guess
-
-        phi_init = soln[0]*np.cos(0.*(tx_init[:, 1:2]-0*tx_init[:, 0:1]))
-        phi_boundary = soln[0]*np.cos(0.*(tx_boundary[:, 1:2]-0*tx_boundary[:, 0:1]))
-        u_exact = soln[0]*np.cos(0.*(tx_init[:, 1:2])-0*tx_eqn[:, 0:1])
         velocities[k] = solution[0]
-        ii = 0.
+        
+    phi_init = soln[0]*np.cos(0.*(tx_init[:, 1:2]-0*tx_init[:, 0:1]))
+    # phi_boundary = soln[0]*np.cos(0.*(tx_boundary[:, 1:2]-0*tx_boundary[:, 0:1]))
+    
+
+    c = solution[0]
+    nt = n_samples # we only care about sampling from this domain for t_boundary as x_boundary is just the left and right points
+    dt = time/(nt-1) # care needs to be taken to ensure scaling does not result too high/low spatial points time = xdomain/c
+    x_bnd_flat = np.arange(x_start,length,dt*c)
+    t_bnd_flat = np.linspace(0, time, nt)
+    t_bnd_mesh, x_bnd_mesh = tf.meshgrid(t_bnd_flat, x_bnd_flat) # doing mesh grids to ensure there is no difference between left and right, equivalently could only conisder either left or right bounds
+    tx_bnd = tf.concat((tf.reshape(t_bnd_mesh, (-1, 1)), tf.reshape(x_bnd_mesh, (-1, 1))), axis=1)
+    
+    
+    ind_bc = tf.range(n_samples)
+    ind_bc_shuffled = tf.random.shuffle(ind_bc, seed = random_seed)[:n_samples]
+    t = tf.cast(t_bnd_flat, dtype=dtype)
+    t_boundary = tf.gather(t, ind_bc_shuffled)
+    t_boundary = tf.reshape(t_boundary,(n_samples,1))
+    tx_boundary_start = tf.concat([t_boundary, bnd_start], axis=1)
+    tx_boundary_end = tf.concat([t_boundary, bnd_end], axis=1)
+    
+    ind_eqn = tf.range(n_samples)
+    ind_eqn_shuffled = tf.random.shuffle(ind_eqn, seed = random_seed)[:n_samples]
+    ind_eqn_shuffled2 = tf.random.shuffle(ind_eqn, seed = random_seed+1)[:n_samples]
+    x_bnd_flat = tf.cast(x_bnd_flat, dtype=dtype)
+    print(len(x_bnd_flat))
+    
+    x_eqn = tf.gather(x_bnd_flat, ind_eqn_shuffled)
+    x_eqn= tf.reshape(x_eqn,(n_samples,1))
+    t_eqn = tf.gather(t, ind_eqn_shuffled2)
+    t_eqn= tf.reshape(t_eqn,(n_samples,1))
+    tx_eqn = tf.concat([t_eqn, x_eqn], axis=1)
+    u_bnd = soln[0]*np.cos(0.*(tx_bnd[:, 1:2]-c*tx_bnd[:, 0:1])) 
+    u_exact = soln[0]*np.cos(0.*(tx_eqn[:, 1:2])-c*tx_eqn[:, 0:1])
+    ii = 0.
+    
     for aii in soln[1:]:
         ii = ii+1.
-        phi_init = phi_init + aii*np.cos(ii*(tx_init[:, 1:2]-0*tx_init[:, 0:1]))
-        phi_boundary = phi_boundary + aii*np.cos(ii*(tx_boundary[:, 1:2]-0*tx_boundary[:, 0:1]))
-        u_exact = u_exact + aii*np.cos(ii*(tx_eqn[:, 1:2]-0*tx_eqn[:, 0:1])) 
+        phi_init = phi_init + aii*np.cos(ii*(tx_init[:, 1:2]-c*tx_init[:, 0:1]))
+        u_exact +=  aii*np.cos(ii*(tx_eqn[:, 1:2]-c*tx_eqn[:, 0:1])) 
+        u_bnd +=  aii*np.cos(ii*(tx_bnd[:, 1:2]-c*tx_bnd[:, 0:1])) 
+        
+    u_bnd = tf.reshape(u_bnd, x_bnd_mesh.shape)
+    u_bnd_left = u_bnd[0,:]
+    y_boundary = tf.gather(u_bnd_left, ind_bc_shuffled)
+    
+
+    
     plt.plot(tx_eqn[:,1:2],u_exact,'.')
-    plt.plot(tx_boundary[:,1:2],phi_boundary,'.')
+    plt.plot(tx_boundary_start[:,1:2][:10],y_boundary[:10],'.')
+    plt.plot(tx_boundary_end[:,1:2][:10],y_boundary[:10],'.')
+    
     plt.show()
 
     y_eqn = tf.zeros((n_samples, 1))
     y_phi = phi_init
-    y_boundary = phi_boundary
 
-    # y_eqn = tf.convert_to_tensor(y_eqn, dtype = dtype)
-    # y_phi = tf.convert_to_tensor(y_phi, dtype = dtype)
-    # y_boundary = tf.convert_to_tensor(y_boundary, dtype = dtype)
-
-    return (tx_eqn, y_eqn, u_exact), (tx_init, y_phi), (tx_boundary, y_boundary), solution
+    return (tx_eqn, y_eqn, u_exact), (tx_init, y_phi), (tx_boundary_start, y_boundary), (tx_boundary_end, y_boundary), solution
 

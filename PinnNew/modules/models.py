@@ -1968,7 +1968,8 @@ class travelKawaharaPINN(tf.keras.models.Model):
         """
         tx_colloc = inputs[0]
         tx_init = inputs[1]
-        tx_bnd = inputs[2]
+        tx_bnd_start = inputs[2]
+        tx_bnd_end = inputs[3]
         with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape5:
             with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape4:
                 with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape3:
@@ -1986,14 +1987,23 @@ class travelKawaharaPINN(tf.keras.models.Model):
         
         
         
-        residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc + self.c)* u_x
-
+        # residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc + self.c)* u_x 
+        # residual = u_xxx + u_x + tf.math.cos(tx_colloc[:,1:])
+        residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x - u_t
         u_init = self.backbone(tx_init, training=training)
+        # residual = self.backbone(tx_colloc, training = training) 
+        u_bnd_start = self.backbone(tx_bnd_start, training=training)
+        u_bnd_end = self.backbone(tx_bnd_end, training=training)
+        
+        # integrand = -self.alpha/2 * u_x**2 + self.beta/2 * u_xx**2 + self.sigma/3 * u_colloc**3
+        
+        # integral = 0 
+        # for i in range(1,len(tx_colloc[:,1:]-1)):
+        #     integral += (integrand[i-1]+integrand[i])/2 * dx_hamil
+        
 
-        u_bnd = self.backbone(tx_bnd, training=training)
 
-
-        return u_colloc, residual, u_init, u_bnd, u_t
+        return u_colloc, residual, u_init, u_bnd_start, u_bnd_end, u_t
     
     @tf.function
     def train_step(self, data):
@@ -2009,12 +2019,12 @@ class travelKawaharaPINN(tf.keras.models.Model):
         x, y = data
         u_colloc, residual, u_init, y_boundary, dudt = y
         with tf.GradientTape(persistent=False) as tape:
-            u_colloc_pred, residual_pred, u_init_pred, u_bnd_pred, dudt_pred = self(
+            u_colloc_pred, residual_pred, u_init_pred, u_bnd_start_pred, u_bnd_end_pred, dudt_pred = self(
                 x, 
                 training=True)
             loss_residual = self.res_loss(residual, residual_pred)
             loss_initial = self.init_loss(u_init, u_init_pred)
-            loss_boundary = self.bnd_loss(y_boundary, u_bnd_pred)
+            loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
             loss_dudt = self.dudt_loss(dudt, dudt_pred)
             loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial \
                 + self._loss_boundary_weight * loss_boundary + self._loss_dudt_weight * loss_dudt
@@ -2043,11 +2053,11 @@ class travelKawaharaPINN(tf.keras.models.Model):
         x, y = data
 
         u_colloc, residual, u_init, y_boundary, dudt = y
-        u_colloc_pred, residual_pred, u_init_pred, u_bnd_pred, dudt_pred = self(
+        u_colloc_pred, residual_pred, u_init_pred, u_bnd_start_pred, u_bnd_end_pred, dudt_pred = self(
             x)
         loss_residual = self.res_loss(residual, residual_pred)
         loss_initial = self.init_loss(u_init, u_init_pred)
-        loss_boundary = self.bnd_loss(y_boundary, u_bnd_pred)
+        loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
         loss_dudt = self.dudt_loss(dudt, dudt_pred)
         loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial \
             + self._loss_boundary_weight * loss_boundary + self._loss_dudt_weight * loss_dudt
