@@ -540,7 +540,7 @@ def kawaharaCosEqnsPos(U, a1, alpha, beta, sigma, N):
     kawaharaCosEqnsPos[N+1] = -a1 + a[1] #for the last equation, linearize to obtain an equation for speed
     return kawaharaCosEqnsPos
 
-def simulate_travel_kawahara(n_samples, x_start, length, time, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., fifthBeta = 1./4., nonlinSigma = 1, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
     """
     Simulate the Kawahara equation in 1D with a given.
     Args:
@@ -576,18 +576,15 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, random_seed = 42,
     # t_boundary = tf.sort(t_boundary, axis=0, direction='ASCENDING', name=None)
     bnd_start = tf.ones((n_samples, 1), dtype=dtype)*x_start
     bnd_end = tf.ones((n_samples, 1), dtype=dtype)*length
-    # x_boundary = tf.concat([bnd_start, bnd_end], axis=0)
-    # x_boundary = tf.random.shuffle(x_boundary, seed=random_seed)
+    x_boundary = tf.concat([tf.reshape([x_start]*(n_samples//2),(-1,1)), tf.reshape([length]*(n_samples//2),(-1,1))], axis=0)
+    x_boundary = tf.random.shuffle(x_boundary, seed=random_seed)
 
     
 
-    thirdAlpha = 1.
-    fifthBeta = 1/4
-    nonlinSigma = 1.
     c = thirdAlpha - fifthBeta
     conSteps = 1500 # number of continuation steps
     a1 = 1.0e-6 # beginning amplitude
-    aF = 0.001 # ending amplitude
+    aF = 0.1 # ending amplitude
     aS = np.linspace(a1,aF,conSteps) # vector of free parameter a1 (amplitudes)
     velocities = np.zeros(conSteps) # Tracks all the velocities for bifurcation branch
     NN = 21 # number of modes at which the Fourier series is truncated 
@@ -620,9 +617,11 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, random_seed = 42,
     ind_bc_shuffled = tf.random.shuffle(ind_bc, seed = random_seed)[:n_samples]
     t = tf.cast(t_bnd_flat, dtype=dtype)
     t_boundary = tf.gather(t, ind_bc_shuffled)
+    # t_boundary = t # ordering time
     t_boundary = tf.reshape(t_boundary,(n_samples,1))
-    tx_boundary_start = tf.concat([t_boundary, bnd_start], axis=1)
-    tx_boundary_end = tf.concat([t_boundary, bnd_end], axis=1)
+    tx_boundary_start = tf.concat([t_boundary, bnd_start], axis=1) 
+    tx_boundary_end = tf.concat([t_boundary, bnd_end], axis=1) 
+    tx_boundary = tf.concat([t_boundary, x_boundary], axis=1)
     
     ind_eqn = tf.range(n_samples)
     ind_eqn_shuffled = tf.random.shuffle(ind_eqn, seed = random_seed)[:n_samples]
@@ -634,9 +633,9 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, random_seed = 42,
     x_eqn= tf.reshape(x_eqn,(n_samples,1))
     t_eqn = tf.gather(t, ind_eqn_shuffled2)
     t_eqn= tf.reshape(t_eqn,(n_samples,1))
-    tx_eqn = tf.concat([t_eqn, x_eqn], axis=1)
+    tx_eqn = tf.concat([t_eqn, x_eqn], axis=1) 
     u_bnd = soln[0]*np.cos(0.*(tx_bnd[:, 1:2]-c*tx_bnd[:, 0:1])) 
-    u_exact = soln[0]*np.cos(0.*(tx_eqn[:, 1:2])-c*tx_eqn[:, 0:1])
+    u_exact = soln[0]*np.cos(0.*(tx_eqn[:, 1:2])-c*tx_eqn[:, 0:1]) 
     ii = 0.
     
     for aii in soln[1:]:
@@ -646,7 +645,7 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, random_seed = 42,
         u_bnd +=  aii*np.cos(ii*(tx_bnd[:, 1:2]-c*tx_bnd[:, 0:1])) 
         
     u_bnd = tf.reshape(u_bnd, x_bnd_mesh.shape)
-    u_bnd_left = u_bnd[0,:]
+    u_bnd_left = tf.cast(u_bnd[0,:], dtype = dtype)
     y_boundary = tf.gather(u_bnd_left, ind_bc_shuffled)
     
 
@@ -660,5 +659,5 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, random_seed = 42,
     y_eqn = tf.zeros((n_samples, 1))
     y_phi = phi_init
 
-    return (tx_eqn, y_eqn, u_exact), (tx_init, y_phi), (tx_boundary_start, y_boundary), (tx_boundary_end, y_boundary), solution
+    return (tx_eqn, y_eqn, u_exact), (tx_init, y_phi), (tx_boundary_start, y_boundary), (tx_boundary_end, y_boundary), (tx_boundary, y_boundary), solution
 
