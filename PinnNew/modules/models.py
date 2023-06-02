@@ -807,7 +807,7 @@ class KdVPinn(tf.keras.Model):
     """
     A model that solves the KdV equation.
     """
-    def __init__(self, backbone, k: float = 6.0, loss_residual_weight=1.0, loss_initial_weight=1.0, \
+    def __init__(self, backbone, k: float = 6.0, c: float = 0., periodic_BC = False, loss_residual_weight=1.0, loss_initial_weight=1.0, \
         loss_boundary_weight=1.0, **kwargs):
         """
         Initializes the model.
@@ -824,6 +824,8 @@ class KdVPinn(tf.keras.Model):
 
         self.backbone = backbone
         self.k = k
+        self.c = c
+        self.periodic_BC = periodic_BC
         self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
         self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
         self.loss_initial_tracker = tf.keras.metrics.Mean(name=LOSS_INITIAL)
@@ -869,6 +871,7 @@ class KdVPinn(tf.keras.Model):
         tx_init = inputs[1]
         tx_bnd_start = inputs[2]
         tx_bnd_end = inputs[3]
+        tx_bnd = inputs[4]
         with tf.GradientTape(watch_accessed_variables=False) as tape3:
             tape3.watch(tx_samples)
             with tf.GradientTape(watch_accessed_variables=False) as tape2:
@@ -884,19 +887,17 @@ class KdVPinn(tf.keras.Model):
             d2u_dx2 = tape2.batch_jacobian(du_dx, tx_samples)[..., 1]
         d3u_dx3 = tape3.batch_jacobian(d2u_dx2, tx_samples)[..., 1]
 
-        lhs_samples = du_dt + self.k * du_dx * u_samples + d3u_dx3
+        lhs_samples = du_dt + (self.k * u_samples - self.c) * du_dx  + d3u_dx3
 
-        # tx_ib = tf.concat([tx_init, tx_bnd], axis=0)
-        # u_ib = self.backbone(tx_ib, training=training)
-        # u_initial = u_ib[:tf.shape(tx_init)[0]]
-        # u_bnd = u_ib[tf.shape(tx_init)[0]:]
-        u_initial = self.backbone(tx_init, training=training)
-        tx_bnd = tf.concat([tx_bnd_start, tx_bnd_end], axis=0)
-        u_bnd = self.backbone(tx_bnd, training=training)
-        u_bnd_start_pred = u_bnd[:tf.shape(tx_bnd_start)[0]]
-        u_bnd_end_pred = u_bnd[tf.shape(tx_bnd_start)[0]:]
+        tx_ib = tf.concat([tx_init, tx_bnd], axis=0)
+        u_ib = self.backbone(tx_ib, training=training)
+        u_initial = u_ib[:tf.shape(tx_init)[0]]
+        u_bnd = u_ib[tf.shape(tx_init)[0]:]
+ 
+        u_bnd_start_pred = self.backbone(tx_bnd_start, training=training)
+        u_bnd_end_pred = self.backbone(tx_bnd_end, training=training)
 
-        return u_samples, lhs_samples, u_initial, u_bnd_start_pred, u_bnd_end_pred
+        return u_samples, lhs_samples, u_initial, u_bnd_start_pred, u_bnd_end_pred, u_bnd
 
     @tf.function
     def train_step(self, data):
@@ -911,14 +912,17 @@ class KdVPinn(tf.keras.Model):
         """
 
         inputs, outputs = data
-        u_samples_exact, rhs_samples_exact, u_initial_exact, _, _ = outputs
+        u_samples_exact, rhs_samples_exact, u_initial_exact, u_bnd_exact = outputs
 
         with tf.GradientTape() as tape:
-            u_samples, lhs_samples, u_initial, u_bnd_start_pred, u_bnd_end_pred = self(inputs, training=True)
+            u_samples, lhs_samples, u_initial, u_bnd_start_pred, u_bnd_end_pred, u_bnd = self(inputs, training=True)
 
             loss_residual = self.res_loss(rhs_samples_exact, lhs_samples)
             loss_initial = self.init_loss(u_initial_exact, u_initial)
-            loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
+            if self.periodic_BC == False:
+                loss_boundary = self.bnd_loss(u_bnd_exact, u_bnd)
+            else: 
+                loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
             loss = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial + \
                 self._loss_boundary_weight * loss_boundary
 
@@ -945,12 +949,15 @@ class KdVPinn(tf.keras.Model):
         """
 
         inputs, outputs = data
-        u_samples_exact, rhs_samples_exact, u_initial_exact, _, _ = outputs
-        u_samples, lhs_samples, u_initial, u_bnd_start, u_bnd_end = self(inputs, training=False)
+        u_samples_exact, rhs_samples_exact, u_initial_exact, u_bnd_exact= outputs
+        u_samples, lhs_samples, u_initial, u_bnd_start, u_bnd_end, u_bnd = self(inputs, training=False)
 
         loss_residual = self.res_loss(rhs_samples_exact, lhs_samples)
         loss_initial = self.init_loss(u_initial_exact, u_initial)
-        loss_boundary = self.bnd_loss(u_bnd_start, u_bnd_end)
+        if self.periodic_BC == False:
+            loss_boundary = self.bnd_loss(u_bnd_exact, u_bnd)
+        else: 
+            loss_boundary = self.bnd_loss(u_bnd_start, u_bnd_end)
         loss = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial + \
             self._loss_boundary_weight * loss_boundary
 
