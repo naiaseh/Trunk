@@ -13,6 +13,7 @@ LOSS_INITIAL = "loss_initial"
 LOSS_RESIDUAL = "loss_residual"
 MEAN_ABSOLUTE_ERROR = "mean_absolute_error"
 LOSS_DUDT = "loss_dudt"
+LOSS_HAMIL = "loss_hamil"
 
 def create_history_dictionary() -> dict:
     """
@@ -41,7 +42,7 @@ def create_history_dictionary_Kawahara_custom() -> dict:
         LOSS_BOUNDARY: [],
         LOSS_INITIAL: [],
         LOSS_RESIDUAL: [],
-        LOSS_DUDT: [],
+        LOSS_HAMIL: [],
         MEAN_ABSOLUTE_ERROR: []
     }
 
@@ -1901,13 +1902,13 @@ class TransportEquation(tf.keras.models.Model):
 
 class travelKawaharaPINN(tf.keras.models.Model):
 
-    def __init__(self, backbone, c, alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, loss_residual_weight=1., loss_initial_weight=1., loss_boundary_weight=1.,  loss_dudt_weight=1., **kwargs):
+    def __init__(self, backbone, c: float = 0. , alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, loss_residual_weight=1., loss_initial_weight=1., loss_boundary_weight=1.,loss_hamil_weight=1., **kwargs):
         """
         Travelling Kawahara model.
 
         Args:
             backbone: The backbone of the model. Should be a tf.keras.Model.
-            c: travelling wave speed
+            c: travelling wave speed (deprecated)
             loss_residual_weight: The weight of the residual loss. Defaults to 1.
             loss_initial_weight: The weight of the initial loss. Defaults to 1.
             loss_boundary_weight: The weight of the boundary loss. Defaults to 1.
@@ -1915,10 +1916,11 @@ class travelKawaharaPINN(tf.keras.models.Model):
         """
         super().__init__(**kwargs)
         self.backbone = backbone
-        self.c = c
+
         self.sigma = sigma
         self.alpha = alpha
         self.beta = beta
+        self.c = c
 
         self._loss_residual_weight = tf.Variable(loss_residual_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
                                                  name="loss_residual_weight")
@@ -1926,20 +1928,24 @@ class travelKawaharaPINN(tf.keras.models.Model):
                                                 name="loss_initial_weight")
         self._loss_boundary_weight = tf.Variable(loss_boundary_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
                                                  name="loss_boundary_weight")
-        self._loss_dudt_weight = tf.Variable(loss_dudt_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
-                                                 name="loss_dudt_weight")
+        self._loss_hamil_weight = tf.Variable(loss_hamil_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                 name="loss_hamil_weight")
+        # self._loss_dudt_weight = tf.Variable(loss_dudt_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                #  name="loss_dudt_weight")
         self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
         self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
         self.loss_initial_tracker = tf.keras.metrics.Mean(name=LOSS_INITIAL)
         self.loss_boundary_tracker = tf.keras.metrics.Mean(name=LOSS_BOUNDARY)
-        self.loss_dudt_tracker = tf.keras.metrics.Mean(name=LOSS_DUDT)
+        self.loss_hamil_tracker = tf.keras.metrics.Mean(name=LOSS_HAMIL)
+        # self.loss_dudt_tracker = tf.keras.metrics.Mean(name=LOSS_DUDT)
         self.mae_tracker = tf.keras.metrics.MeanAbsoluteError(name=MEAN_ABSOLUTE_ERROR)
         self.res_loss = tf.keras.losses.MeanSquaredError()
         self.init_loss = tf.keras.losses.MeanSquaredError()
         self.bnd_loss = tf.keras.losses.MeanSquaredError()
-        self.dudt_loss = tf.keras.losses.MeanSquaredError()
+        self.hamil_loss = tf.keras.losses.MeanSquaredError()
+        # self.dudt_loss = tf.keras.losses.MeanSquaredError()
 
-    def set_loss_weights(self, loss_residual_weight, loss_initial_weight, loss_boundary_weight, loss_dudt_weight):
+    def set_loss_weights(self, loss_residual_weight, loss_initial_weight, loss_boundary_weight, loss_hamil_weight):
         """
         Sets the loss weights.
 
@@ -1952,7 +1958,8 @@ class travelKawaharaPINN(tf.keras.models.Model):
         self._loss_residual_weight.assign(loss_residual_weight)
         self._loss_initial_weight.assign(loss_initial_weight)
         self._loss_boundary_weight.assign(loss_boundary_weight)
-        self._loss_dudt_weight.assign(loss_dudt_weight)
+        self._loss_hamil_weight.assign(loss_hamil_weight)
+        # self._loss_dudt_weight.assign(loss_dudt_weight)
 
     @tf.function
     def call(self, inputs, training=False):
@@ -1970,6 +1977,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
         tx_init = inputs[1]
         tx_bnd_start = inputs[2]
         tx_bnd_end = inputs[3]
+        tx_bnd = inputs[4]
         with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape5:
             with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape4:
                 with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape3:
@@ -1989,11 +1997,14 @@ class travelKawaharaPINN(tf.keras.models.Model):
         
         # residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc + self.c)* u_x 
         # residual = u_xxx + u_x + tf.math.cos(tx_colloc[:,1:])
-        residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x - u_t
+        residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc + self.c) * u_x - u_t
         u_init = self.backbone(tx_init, training=training)
         # residual = self.backbone(tx_colloc, training = training) 
         u_bnd_start = self.backbone(tx_bnd_start, training=training)
         u_bnd_end = self.backbone(tx_bnd_end, training=training)
+        u_bnd = self.backbone(tx_bnd, training=training)
+        u_hamil_integrand = -self.alpha/2. * tf.math.square(u_x) +self.beta/2. * tf.math.square(u_xx) + self.sigma/3. * tf.math.square(u_colloc) * u_colloc
+        hamil_term = tf.reduce_sum(u_hamil_integrand, 0)
         
         # integrand = -self.alpha/2 * u_x**2 + self.beta/2 * u_xx**2 + self.sigma/3 * u_colloc**3
         
@@ -2003,7 +2014,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
         
 
 
-        return u_colloc, residual, u_init, u_bnd_start, u_bnd_end, u_t
+        return u_colloc, residual, u_init, u_bnd_start, u_bnd_end, u_bnd, hamil_term
     
     @tf.function
     def train_step(self, data):
@@ -2013,28 +2024,30 @@ class travelKawaharaPINN(tf.keras.models.Model):
         Args:
             data: The data to train on. Should be a list of inputs and outputs: \
                 [x, y], where x is a list of tensors: [tx_colloc, tx_init, tx_bnd] and y is \
-                    a list of tensors: [u_colloc, residual, u_init, u_bnd, dudt]
+                    a list of tensors: [u_colloc, residual, u_init, u_bnd_start]
         """
 
         x, y = data
-        u_colloc, residual, u_init, y_boundary, dudt = y
+        u_colloc, residual, u_init, y_boundary = y
         with tf.GradientTape(persistent=False) as tape:
-            u_colloc_pred, residual_pred, u_init_pred, u_bnd_start_pred, u_bnd_end_pred, dudt_pred = self(
+            u_colloc_pred, residual_pred, u_init_pred, u_bnd_start_pred, u_bnd_end_pred, u_bnd_pred, hamil_term = self(
                 x, 
                 training=True)
             loss_residual = self.res_loss(residual, residual_pred)
             loss_initial = self.init_loss(u_init, u_init_pred)
-            loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
-            loss_dudt = self.dudt_loss(dudt, dudt_pred)
+            loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred,)
+            loss_hamil = self.hamil_loss(-0.002, hamil_term)
+            # loss_dudt = self.dudt_loss(dudt, dudt_pred) # it is one value
             loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial \
-                + self._loss_boundary_weight * loss_boundary + self._loss_dudt_weight * loss_dudt
+                + self._loss_boundary_weight * loss_boundary + self._loss_hamil_weight * loss_hamil 
         gards = tape.gradient(loss_total, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gards, self.trainable_variables))
 
         self.loss_initial_tracker.update_state(loss_initial)
         self.loss_boundary_tracker.update_state(loss_boundary)
         self.loss_residual_tracker.update_state(loss_residual)
-        self.loss_dudt_tracker.update_state(loss_dudt)
+        self.loss_hamil_tracker.update_state(loss_hamil)
+        # self.loss_dudt_tracker.update_state(loss_dudt)
         self.loss_total_tracker.update_state(loss_total)
         self.mae_tracker.update_state(u_colloc, u_colloc_pred)
 
@@ -2047,25 +2060,27 @@ class travelKawaharaPINN(tf.keras.models.Model):
         Args:
             data: The data to test on. Should be a list of inputs and outputs: \
                 [x, y], where x is a list of tensors: [tx_colloc, tx_init, tx_bnd] and y is \
-                    a list of tensors: [u_colloc, residual, u_init, u_bnd, dudt]
+                    a list of tensors: [u_colloc, residual, u_init, u_bnd_start]
         """
 
         x, y = data
 
-        u_colloc, residual, u_init, y_boundary, dudt = y
-        u_colloc_pred, residual_pred, u_init_pred, u_bnd_start_pred, u_bnd_end_pred, dudt_pred = self(
+        u_colloc, residual, u_init, y_boundary = y
+        u_colloc_pred, residual_pred, u_init_pred, u_bnd_start_pred, u_bnd_end_pred, u_bnd_pred, hamil_term = self(
             x)
         loss_residual = self.res_loss(residual, residual_pred)
         loss_initial = self.init_loss(u_init, u_init_pred)
         loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
-        loss_dudt = self.dudt_loss(dudt, dudt_pred)
+        loss_hamil = self.hamil_loss(-0.002, hamil_term)
+        # loss_dudt = self.dudt_loss(dudt, dudt_pred)
         loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial \
-            + self._loss_boundary_weight * loss_boundary + self._loss_dudt_weight * loss_dudt
+            + self._loss_boundary_weight * loss_boundary + self._loss_hamil_weight * loss_hamil 
 
         self.loss_initial_tracker.update_state(loss_initial)
         self.loss_boundary_tracker.update_state(loss_boundary)
         self.loss_residual_tracker.update_state(loss_residual)
-        self.loss_dudt_tracker.update_state(loss_dudt)
+        self.loss_hamil_tracker.update_state(loss_hamil)
+        # self.loss_dudt_tracker.update_state(loss_dudt)
         self.loss_total_tracker.update_state(loss_total)
         self.mae_tracker.update_state(u_colloc, u_colloc_pred)
 
@@ -2093,7 +2108,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
                 history[key].append(value.numpy())
 
             if epoch % print_every == 0:
-                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}, Loss Boundary: {metrs['loss_boundary']:0.4f}, Loss Dudt: {metrs['loss_dudt']:0.4f}, MAE: {metrs['mean_absolute_error']:0.4f}")
+                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}, Loss Boundary: {metrs['loss_boundary']:0.4f}, Loss Hamil: {metrs['loss_hamil']:0.4f}, MAE: {metrs['mean_absolute_error']:0.4f}")
                 
             #reset metrics
             for m in self.metrics:
@@ -2107,5 +2122,5 @@ class travelKawaharaPINN(tf.keras.models.Model):
         Returns the metrics to track.
         """
         return [self.loss_total_tracker, self.loss_residual_tracker, self.loss_initial_tracker, \
-            self.loss_boundary_tracker, self.loss_dudt_tracker, self.mae_tracker]
+            self.loss_boundary_tracker, self.loss_hamil_tracker, self.mae_tracker]
 
