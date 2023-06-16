@@ -117,7 +117,7 @@ def simulate_wave(n_samples, phi_function, psi_function, boundary_function, x_st
 
     return (tx_eqn, y_eqn), (tx_init, y_phi, y_psi), (tx_boundary, y_boundary)
 
-def simulate_kdv(n_samples, solver_function, init_function, bnd_fcn, xstart, length, time, compute_periodic = False, nx = 256, nt = 201, shuffle_bnd = False, n_init=None, n_bndry=None,random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_kdv(n_samples, init_function, bnd_fcn, xstart, length, time, c = 0., compute_periodic = False, solver_function = None, nx = 256, nt = 201, shuffle_bnd = False, n_init=None, n_bndry=None,random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
     """
     Simulate the KdV equation in 1D with a given initial condition and Dirichlet boundary conditions.
     Args:
@@ -142,7 +142,7 @@ def simulate_kdv(n_samples, solver_function, init_function, bnd_fcn, xstart, len
     r = np.random.RandomState(random_seed)
     t = r.uniform(0, time, (n_samples, 1))
     x = r.uniform(xstart, length, (n_samples, 1))
-    tx_eqn = np.concatenate((t, x), axis = 1)
+    tx_eqn = np.concatenate((t, x), axis = 1) 
     if compute_periodic==True:
         x_flat = np.linspace(xstart, length, nx)
         t_flat = np.linspace(0, time, nt)
@@ -161,7 +161,7 @@ def simulate_kdv(n_samples, solver_function, init_function, bnd_fcn, xstart, len
     t_boundary = tf.random.uniform((n_bndry, 1), 0, time, dtype=dtype, seed=random_seed)
     x_boundary = tf.ones((n_bndry//2, 1), dtype=dtype) * xstart
     x_boundary = tf.concat([x_boundary, tf.ones((n_bndry//2, 1) , dtype=dtype) * length], axis=0)
-    x_boundary = tf.random.shuffle(x_boundary, seed=random_seed)
+    x_boundary = tf.random.shuffle(x_boundary, seed=random_seed) 
     x_boundary_start = tf.cast(tf.reshape([xstart] * n_bndry, (-1, 1)), dtype = dtype)
     x_boundary_end = tf.cast(tf.reshape([length] * n_bndry, (-1, 1)), dtype = dtype)
     tx_boundary_start = tf.concat((t_boundary, x_boundary_start), axis=1)
@@ -538,10 +538,10 @@ def kawaharaCosEqnsPos(U, a1, alpha, beta, sigma, N):
             sum2=sum2+a[n]*a[k-n] 
         kawaharaCosEqnsPos[k]=((V*a[k] + 1./2.*sigma*sum1 + 1./2.*sigma*sum2 - alpha*k**2*a[k] + beta*k**4*a[k]))
         
-    kawaharaCosEqnsPos[N+1] = -a1 + a[1] #for the last equation, linearize to obtain an equation for speed
+    kawaharaCosEqnsPos[N+1] = -a1 + a[1] 
     return kawaharaCosEqnsPos
 
-def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., fifthBeta = 1./4., nonlinSigma = 1, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., fifthBeta = 1./4., nonlinSigma = 1, aF = 0.001, moving_frame = False, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
     """
     Simulate the Kawahara equation in 1D with a given.
     Args:
@@ -559,22 +559,17 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., 
   
 
     
-    # t = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
-    # t = tf.ones((n_samples, 1), dtype=dtype)
-    # x = tf.random.uniform((n_samples, 1), x_start, length, dtype=dtype, seed=random_seed)
+    t_eqn = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
+    x_eqn = tf.random.uniform((n_samples, 1), x_start, length, dtype=dtype, seed=random_seed)
     # x = tf.sort(x, axis=0, direction='ASCENDING', name=None)
-    # t = tf.sort(t, axis=0, direction='ASCENDING', name=None)
+
     
     
     t_init = tf.zeros((n_samples, 1), dtype=dtype)
     x_init = tf.random.uniform((n_samples, 1), x_start, length, seed=random_seed, dtype=dtype)
-    # x_init = tf.sort(x_init, axis=0, direction='ASCENDING', name=None)
     tx_init = tf.concat([t_init, x_init], axis=1)
 
-    # t_boundary = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
-    # t_boundary = tf.sort(t_boundary, axis=0, direction='ASCENDING', name=None)
-    # t_boundary = tf.ones((n_samples, 1), dtype=dtype)
-    # t_boundary = tf.sort(t_boundary, axis=0, direction='ASCENDING', name=None)
+    t_boundary = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
     bnd_start = tf.ones((n_samples, 1), dtype=dtype)*x_start
     bnd_end = tf.ones((n_samples, 1), dtype=dtype)*length
     x_boundary = tf.concat([tf.reshape([x_start]*(n_samples//2),(-1,1)), tf.reshape([length]*(n_samples//2),(-1,1))], axis=0)
@@ -585,14 +580,14 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., 
     c = thirdAlpha - fifthBeta
     conSteps = 1500 # number of continuation steps
     a1 = 1.0e-6 # beginning amplitude
-    aF = 0.1 # ending amplitude
+
     aS = np.linspace(a1,aF,conSteps) # vector of free parameter a1 (amplitudes)
     velocities = np.zeros(conSteps) # Tracks all the velocities for bifurcation branch
     NN = 21 # number of modes at which the Fourier series is truncated 
     uguess = np.zeros(NN+2)
 
     uguess[0] = c # uguess is our initial guess vector, it has zeros everywhere, except for first two elements: c and a1
-    uguess[1] = a1
+    uguess[2] = a1
     V = c
     for k in range(conSteps):
         solution = fsolve(kawaharaCosEqnsPos, uguess, args=(aS[k], thirdAlpha, fifthBeta, nonlinSigma, NN),xtol=1.e-8) 
@@ -604,38 +599,40 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., 
     phi_init = soln[0]*np.cos(0.*(tx_init[:, 1:2]-0*tx_init[:, 0:1]))
     # phi_boundary = soln[0]*np.cos(0.*(tx_boundary[:, 1:2]-0*tx_boundary[:, 0:1]))
     
-
-    c = solution[0]
+    if moving_frame:
+        c = solution[0]
+    else:
+        c = 0.
     nt = n_samples # we only care about sampling from this domain for t_boundary as x_boundary is just the left and right points
-    dt = time/(nt-1) # care needs to be taken to ensure scaling does not result too high/low spatial points time = xdomain/c
-    x_bnd_flat = np.arange(x_start,length,dt*c)
-    t_bnd_flat = np.linspace(0, time, nt)
-    t_bnd_mesh, x_bnd_mesh = tf.meshgrid(t_bnd_flat, x_bnd_flat) # doing mesh grids to ensure there is no difference between left and right, equivalently could only conisder either left or right bounds
-    tx_bnd = tf.concat((tf.reshape(t_bnd_mesh, (-1, 1)), tf.reshape(x_bnd_mesh, (-1, 1))), axis=1)
+    # dt = time/(nt-1) # care needs to be taken to ensure scaling does not result too high/low spatial points time = xdomain/c
+    # x_bnd_flat = np.arange(x_start,length,dt*c)
+    # t_bnd_flat = np.linspace(0, time, nt)
+    # t_bnd_mesh, x_bnd_mesh = tf.meshgrid(t_bnd_flat, x_bnd_flat) # doing mesh grids to ensure there is no difference between left and right, equivalently could only conisder either left or right bounds
+    # tx_bnd = tf.concat((tf.reshape(t_bnd_mesh, (-1, 1)), tf.reshape(x_bnd_mesh, (-1, 1))), axis=1)
     
     
-    ind_bc = tf.range(n_samples)
-    ind_bc_shuffled = tf.random.shuffle(ind_bc, seed = random_seed)[:n_samples]
-    t = tf.cast(t_bnd_flat, dtype=dtype)
-    t_boundary = tf.gather(t, ind_bc_shuffled)
-    # t_boundary = t # ordering time
-    t_boundary = tf.reshape(t_boundary,(n_samples,1))
+    # ind_bc = tf.range(n_samples)
+    # ind_bc_shuffled = tf.random.shuffle(ind_bc, seed = random_seed)[:n_samples]
+    # t = tf.cast(t_bnd_flat, dtype=dtype)
+    # t_boundary = tf.gather(t, ind_bc_shuffled)
+    # # t_boundary = t # ordering time
+    # t_boundary = tf.reshape(t_boundary,(n_samples,1))
     tx_boundary_start = tf.concat([t_boundary, bnd_start], axis=1) 
     tx_boundary_end = tf.concat([t_boundary, bnd_end], axis=1) 
     tx_boundary = tf.concat([t_boundary, x_boundary], axis=1)
     
-    ind_eqn = tf.range(n_samples)
-    ind_eqn_shuffled = tf.random.shuffle(ind_eqn, seed = random_seed)[:n_samples]
-    ind_eqn_shuffled2 = tf.random.shuffle(ind_eqn, seed = random_seed+1)[:n_samples]
-    x_bnd_flat = tf.cast(x_bnd_flat, dtype=dtype)
-    print(len(x_bnd_flat))
+    # ind_eqn = tf.range(n_samples)
+    # ind_eqn_shuffled = tf.random.shuffle(ind_eqn, seed = random_seed)[:n_samples]
+    # ind_eqn_shuffled2 = tf.random.shuffle(ind_eqn, seed = random_seed+1)[:n_samples]
+    # x_bnd_flat = tf.cast(x_bnd_flat, dtype=dtype)
+    # print(len(x_bnd_flat))
     
-    x_eqn = tf.gather(x_bnd_flat, ind_eqn_shuffled)
-    x_eqn= tf.reshape(x_eqn,(n_samples,1))
-    t_eqn = tf.gather(t, ind_eqn_shuffled2)
-    t_eqn= tf.reshape(t_eqn,(n_samples,1))
+    # x_eqn = tf.gather(x_bnd_flat, ind_eqn_shuffled)
+    # x_eqn= tf.reshape(x_eqn,(n_samples,1))
+    # t_eqn = tf.gather(t, ind_eqn_shuffled2)
+    # t_eqn= tf.reshape(t_eqn,(n_samples,1))
     tx_eqn = tf.concat([t_eqn, x_eqn], axis=1) 
-    u_bnd = soln[0]*np.cos(0.*(tx_bnd[:, 1:2]-c*tx_bnd[:, 0:1])) 
+    u_bnd = soln[0]*np.cos(0.*(tx_boundary[:, 1:2]-c*tx_boundary[:, 0:1])) 
     u_exact = soln[0]*np.cos(0.*(tx_eqn[:, 1:2])-c*tx_eqn[:, 0:1]) 
     ii = 0.
     
@@ -643,12 +640,12 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., 
         ii = ii+1.
         phi_init = phi_init + aii*np.cos(ii*(tx_init[:, 1:2]-c*tx_init[:, 0:1]))
         u_exact +=  aii*np.cos(ii*(tx_eqn[:, 1:2]-c*tx_eqn[:, 0:1])) 
-        u_bnd +=  aii*np.cos(ii*(tx_bnd[:, 1:2]-c*tx_bnd[:, 0:1])) 
+        u_bnd +=  aii*np.cos(ii*(tx_boundary[:, 1:2]-c*tx_boundary[:, 0:1])) 
         
-    u_bnd = tf.reshape(u_bnd, x_bnd_mesh.shape)
-    u_bnd_left = tf.cast(u_bnd[0,:], dtype = dtype)
-    y_boundary = tf.gather(u_bnd_left, ind_bc_shuffled)
-    
+    # u_bnd = tf.reshape(u_bnd, x_bnd_mesh.shape)
+    # u_bnd_left = tf.cast(u_bnd[0,:], dtype = dtype)
+    # y_boundary = tf.gather(u_bnd_left, ind_bc_shuffled)
+    y_boundary = u_bnd
 
     
     plt.plot(tx_eqn[:,1:2],u_exact,'.')
@@ -662,3 +659,70 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., 
 
     return (tx_eqn, y_eqn, u_exact), (tx_init, y_phi), (tx_boundary_start, y_boundary), (tx_boundary_end, y_boundary), (tx_boundary, y_boundary), solution
 
+def simulate_c_parametrization(n_samples, x_start, length, thirdAlpha = 1., fifthBeta = 1./4., nonlinSigma = 1, a1 = 1.0e-6, aF = 0.001, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+
+
+
+    c_init_val = thirdAlpha-fifthBeta
+    conSteps = 2000 # number of continuation steps
+
+
+    aS = np.linspace(a1,aF,conSteps) # vector of free parameter a1 (amplitudes)
+    velocities = np.zeros(conSteps) # Tracks all the velocities for bifurcation branch
+    NN = 21 # number of modes at which the Fourier series is truncated 
+    uguess = np.zeros(NN+2)
+
+    uguess[0] = c_init_val # uguess is our initial guess vector, it has zeros everywhere, except for first two elements: c and a1
+    uguess[2] = a1
+    V = c_init_val
+    for k in range(conSteps):
+        solution = fsolve(kawaharaCosEqnsPos, uguess, args=(aS[k], thirdAlpha, fifthBeta, nonlinSigma, NN),xtol=1.e-8) 
+        soln = solution[1::] # all the As (excludes speed)
+        V = solution[0]
+        uguess = np.concatenate((V,solution[1],aS[k],solution[3::]),axis=None) #update initial guess
+        velocities[k] = solution[0]
+        
+        if k == 0:
+            solution_init = solution
+        else: 
+            pass
+    c_init_val = thirdAlpha-fifthBeta
+    c_eqn = tf.random.uniform((n_samples, 1), c_init_val, velocities[-1], dtype=dtype, seed=random_seed)
+    x_eqn = tf.random.uniform((n_samples, 1), x_start, length, dtype=dtype, seed=random_seed)
+    
+    c_init = tf.ones((n_samples, 1), dtype=dtype)*c_init_val
+    x_init = tf.random.uniform((n_samples, 1), x_start, length, seed=random_seed, dtype=dtype)
+    cx_init = tf.concat([c_init, x_init], axis=1)
+
+    c_boundary = tf.random.uniform((n_samples, 1), c_init_val, velocities[-1], dtype=dtype, seed=random_seed)
+    bnd_start = tf.ones((n_samples, 1), dtype=dtype)*x_start
+    bnd_end = tf.ones((n_samples, 1), dtype=dtype)*length
+    x_boundary = tf.concat([tf.reshape([x_start]*(n_samples//2),(-1,1)), tf.reshape([length]*(n_samples//2),(-1,1))], axis=0)
+    x_boundary = tf.random.shuffle(x_boundary, seed=random_seed)
+
+
+    cx_boundary_start = tf.concat([c_boundary, bnd_start], axis=1) 
+    cx_boundary_end = tf.concat([c_boundary, bnd_end], axis=1) 
+    cx_boundary = tf.concat([c_boundary, x_boundary], axis=1)
+
+    cx_eqn = tf.concat([c_eqn, x_eqn], axis=1) 
+    
+    soln_init = solution_init[1::]
+    phi_init = soln_init[0]*np.cos(0.*(cx_init[:, 1:2]))
+
+    ii = 0.
+    
+    for aii in soln_init[1:]:
+        ii = ii+1.
+        phi_init = phi_init + aii*np.cos(ii*(cx_init[:, 1:2]))
+
+    phi_init = phi_init-soln_init[0]
+    
+    plt.plot(cx_init[:,1:2],phi_init,'.')
+
+    
+    plt.show()
+    y_eqn = tf.zeros((n_samples, 1))
+
+
+    return (cx_eqn, y_eqn), (cx_init, phi_init), (cx_boundary_start, cx_boundary_end, cx_boundary), (velocities, aS)

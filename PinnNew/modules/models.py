@@ -1909,7 +1909,7 @@ class TransportEquation(tf.keras.models.Model):
 
 class travelKawaharaPINN(tf.keras.models.Model):
 
-    def __init__(self, backbone, c: float = 0. , alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, loss_residual_weight=1., loss_initial_weight=1., loss_boundary_weight=1.,loss_hamil_weight=1., **kwargs):
+    def __init__(self, backbone, c: float = 0. , alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, loss_residual_weight=1., loss_initial_weight=1., loss_boundary_weight=1.,loss_hamil_weight=1., PBC = True, **kwargs):
         """
         Travelling Kawahara model.
 
@@ -1928,6 +1928,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
         self.alpha = alpha
         self.beta = beta
         self.c = c
+        self.PBC = PBC
 
         self._loss_residual_weight = tf.Variable(loss_residual_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
                                                  name="loss_residual_weight")
@@ -2004,7 +2005,8 @@ class travelKawaharaPINN(tf.keras.models.Model):
         
         # residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc + self.c)* u_x 
         # residual = u_xxx + u_x + tf.math.cos(tx_colloc[:,1:])
-        residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc + self.c) * u_x - u_t
+        residual = + self.alpha * u_xxx - self.c * u_x 
+        # residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x + (self.c * u_x - u_t)
         u_init = self.backbone(tx_init, training=training)
         # residual = self.backbone(tx_colloc, training = training) 
         u_bnd_start = self.backbone(tx_bnd_start, training=training)
@@ -2042,7 +2044,10 @@ class travelKawaharaPINN(tf.keras.models.Model):
                 training=True)
             loss_residual = self.res_loss(residual, residual_pred)
             loss_initial = self.init_loss(u_init, u_init_pred)
-            loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred,)
+            if self.PBC == True:
+                loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
+            else:
+                loss_boundary = self.bnd_loss(u_bnd_pred, y_boundary)
             loss_hamil = self.hamil_loss(-0.002, hamil_term)
             # loss_dudt = self.dudt_loss(dudt, dudt_pred) # it is one value
             loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial \
@@ -2077,7 +2082,10 @@ class travelKawaharaPINN(tf.keras.models.Model):
             x)
         loss_residual = self.res_loss(residual, residual_pred)
         loss_initial = self.init_loss(u_init, u_init_pred)
-        loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
+        if self.PBC == True:
+            loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
+        else:
+            loss_boundary = self.bnd_loss(u_bnd_pred, y_boundary)
         loss_hamil = self.hamil_loss(-0.002, hamil_term)
         # loss_dudt = self.dudt_loss(dudt, dudt_pred)
         loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial \
@@ -2131,3 +2139,173 @@ class travelKawaharaPINN(tf.keras.models.Model):
         return [self.loss_total_tracker, self.loss_residual_tracker, self.loss_initial_tracker, \
             self.loss_boundary_tracker, self.loss_hamil_tracker, self.mae_tracker]
 
+class cParametrizationPINN(tf.keras.models.Model):
+
+    def __init__(self, backbone, alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, loss_residual_weight=1., loss_initial_weight=1., loss_boundary_weight=1., **kwargs):
+        """
+        Travelling Kawahara model.
+
+        Args:
+            backbone: The backbone of the model. Should be a tf.keras.Model.
+            c: travelling wave speed (deprecated)
+            loss_residual_weight: The weight of the residual loss. Defaults to 1.
+            loss_initial_weight: The weight of the initial loss. Defaults to 1.
+            loss_boundary_weight: The weight of the boundary loss. Defaults to 1.
+            kwargs: Additional arguments to pass to the tf.keras.Model constructor.
+        """
+        super().__init__(**kwargs)
+        self.backbone = backbone
+
+        self.sigma = sigma
+        self.alpha = alpha
+        self.beta = beta
+
+        self._loss_residual_weight = tf.Variable(loss_residual_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                 name="loss_residual_weight")
+        self._loss_initial_weight = tf.Variable(loss_initial_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                name="loss_initial_weight")
+        self._loss_boundary_weight = tf.Variable(loss_boundary_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                 name="loss_boundary_weight")
+
+        self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
+        self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
+        self.loss_initial_tracker = tf.keras.metrics.Mean(name=LOSS_INITIAL)
+        self.loss_boundary_tracker = tf.keras.metrics.Mean(name=LOSS_BOUNDARY)
+
+        # self.mae_tracker = tf.keras.metrics.MeanAbsoluteError(name=MEAN_ABSOLUTE_ERROR)
+        self.res_loss = tf.keras.losses.MeanSquaredError()
+        self.init_loss = tf.keras.losses.MeanSquaredError()
+        self.bnd_loss = tf.keras.losses.MeanSquaredError()
+
+    def set_loss_weights(self, loss_residual_weight, loss_initial_weight, loss_boundary_weight):
+
+        self._loss_residual_weight.assign(loss_residual_weight)
+        self._loss_initial_weight.assign(loss_initial_weight)
+        self._loss_boundary_weight.assign(loss_boundary_weight)
+
+    @tf.function
+    def call(self, inputs, training=False):
+        """
+        Performs a forward pass through the model.
+
+        Args:
+            inputs: The inputs to the model. Should be a list of tensors: [cx_colloc, cx_init, cx_bnd_start, cx_bnd_end]
+            training: Whether to run in training mode. Defaults to False.
+
+        Returns:
+            A list of tensors: [u_colloc, residual, u_init, u_bnd]
+        """
+        cx_colloc = inputs[0]
+        cx_init = inputs[1]
+        cx_bnd_start = inputs[2]
+        cx_bnd_end = inputs[3]
+
+        with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape5:
+            with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape4:
+                with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape3:
+                    with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape2:
+                        with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape:
+                            tape.watch(cx_colloc)
+                            u_colloc = self.backbone(cx_colloc, training=training)
+                        first_order = tape.batch_jacobian(u_colloc, cx_colloc)
+                        u_c = first_order[..., 0]
+                        u_x = first_order[..., 1]
+                    u_xx = tape2.batch_jacobian(u_x, cx_colloc)[..., 1]
+                u_xxx = tape3.batch_jacobian(u_xx, cx_colloc)[..., 1]
+            u_4x = tape4.batch_jacobian(u_xxx, cx_colloc)[..., 1]
+        u_5x = tape5.batch_jacobian(u_4x, cx_colloc)[..., 1]
+        
+        
+        
+        # amplitude = tf.math.abs(tf.reduce_max(u_colloc)-tf.reduce_min(u_colloc))
+        residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x + (cx_colloc[:,:1]* u_x)
+        u_init = self.backbone(cx_init, training=training)
+        u_bnd_start = self.backbone(cx_bnd_start, training=training)
+        u_bnd_end = self.backbone(cx_bnd_end, training=training)
+
+        
+
+
+        return residual, u_init, u_bnd_start, u_bnd_end
+    
+    @tf.function
+    def train_step(self, data):
+        x, y = data
+        residual, u_init = y
+        with tf.GradientTape(persistent=False) as tape:
+            residual_pred, u_init_pred, u_bnd_start_pred, u_bnd_end_pred= self(
+                x, 
+                training=True)
+            loss_residual = self.res_loss(residual, residual_pred)
+            loss_initial = self.init_loss(u_init, u_init_pred)
+            loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
+            loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial \
+                + self._loss_boundary_weight * loss_boundary 
+        gards = tape.gradient(loss_total, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gards, self.trainable_variables))
+        self.loss_initial_tracker.update_state(loss_initial)
+        self.loss_boundary_tracker.update_state(loss_boundary)
+        self.loss_residual_tracker.update_state(loss_residual)
+        self.loss_total_tracker.update_state(loss_total)
+        # self.mae_tracker.update_state(u_colloc, u_colloc_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+    
+    def test_step(self, data):
+
+
+        x, y = data
+        residual, u_init = y
+        residual_pred, u_init_pred, u_bnd_start_pred, u_bnd_end_pred = self(
+            x)
+        loss_residual = self.res_loss(residual, residual_pred)
+        loss_initial = self.init_loss(u_init, u_init_pred)
+        loss_boundary = self.bnd_loss(u_bnd_start_pred, u_bnd_end_pred)
+        loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial \
+            + self._loss_boundary_weight * loss_boundary 
+
+        self.loss_initial_tracker.update_state(loss_initial)
+        self.loss_boundary_tracker.update_state(loss_boundary)
+        self.loss_residual_tracker.update_state(loss_residual)
+        self.loss_total_tracker.update_state(loss_total)
+        # self.mae_tracker.update_state(u_colloc, u_colloc_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+    
+    def fit_custom(self, inputs: List['tf.Tensor'], outputs: List['tf.Tensor'], epochs: int, print_every: int = 1000):
+        """
+        Custom alternative to tensorflow fit function, mainly to allow inputs with different sizes. Training is done in full batches.
+        
+        Args:
+            inputs: The inputs to the model. Should be a list of tensors: [tx_colloc, tx_init, tx_bnd]
+            outputs: The outputs to the model. Should be a list of tensors: [u_colloc, residual, u_init, u_bnd]
+            epochs: The number of epochs to train for.
+            print_every: The number of epochs between printing the loss. Defaults to 1000.
+
+        Returns:
+            A dictionary containing the history of the training.
+        """
+
+        history = create_history_dictionary()
+        
+        for epoch in range(epochs):
+            metrs = self.train_step([inputs, outputs])
+            for key, value in metrs.items():
+                history[key].append(value.numpy())
+
+            if epoch % print_every == 0:
+                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}, Loss Boundary: {metrs['loss_boundary']:0.4f}")
+                
+            #reset metrics
+            for m in self.metrics:
+                m.reset_states()
+
+        return history
+
+    @property
+    def metrics(self):
+        """
+        Returns the metrics to track.
+        """
+        return [self.loss_total_tracker, self.loss_residual_tracker, self.loss_initial_tracker, \
+            self.loss_boundary_tracker]

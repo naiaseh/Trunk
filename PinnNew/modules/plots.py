@@ -155,7 +155,7 @@ def plot_burgers_model(model, save_path = None, show=True) -> None:
     if show:
         plt.show()
 
-def plot_KdV_model(model, xstart,length, time, lim1=-1, lim2 = 1, u_exact = None, save_path = None, show=True) -> None:
+def plot_KdV_model(model, xstart,length, time, lim1=-1, lim2 = 1, c= 0., u_exact = None, save_path = None, show=True) -> None:
     """
     Plot the model predictions for the kdv equation.
     Args:
@@ -170,7 +170,7 @@ def plot_KdV_model(model, xstart,length, time, lim1=-1, lim2 = 1, u_exact = None
     t_flat = np.linspace(0, time, num_test_samples)
     x_flat = np.linspace(xstart, length, num_test_samples)
     t, x = np.meshgrid(t_flat, x_flat)
-    tx = np.stack([t.flatten(), x.flatten()], axis=-1)
+    tx = np.stack([t.flatten(), x.flatten()-c*t.flatten()], axis=-1) #
     u = model.predict(tx, batch_size=num_test_samples)
     u = u.reshape(t.shape)
 
@@ -188,7 +188,7 @@ def plot_KdV_model(model, xstart,length, time, lim1=-1, lim2 = 1, u_exact = None
     t_cross_sections = [0, time/4, time/2, 3*time/4, time]
     for i, t_cs in enumerate(t_cross_sections):
         plt.subplot(gs[1, i])
-        tx = np.stack([np.full(t_flat.shape, t_cs), x_flat], axis=-1)
+        tx = np.stack([np.full(t_flat.shape, t_cs), x_flat-c*t_cs], axis=-1) #
         u = model.predict(tx, batch_size=num_test_samples)
         plt.plot(x_flat, u, label='prediction')
         if u_exact != None:
@@ -197,6 +197,45 @@ def plot_KdV_model(model, xstart,length, time, lim1=-1, lim2 = 1, u_exact = None
         plt.title('t={}'.format(np.round(t_cs,2)))
         plt.xlabel('x')
         plt.ylabel('u(t,x)')
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path)
+    if show:
+        plt.show()
+        
+def plot_cParam_model(model, xstart,length, c_start, c_end, lim1=-1, lim2 = 1, u_exact = None, save_path = None, show=True) -> None:
+
+    num_test_samples = 1000
+    c_flat = np.linspace(c_start, c_end, num_test_samples)
+    x_flat = np.linspace(xstart, length, num_test_samples)
+    c, x = np.meshgrid(c_flat, x_flat)
+    cx = np.stack([c.flatten(), x.flatten()], axis=-1) 
+    u = model.predict(cx, batch_size=num_test_samples)
+    u = u.reshape(c.shape)
+
+    # plot u(t,x) distribution as a color-map
+    fig = plt.figure(figsize=(7,4))
+    gs = GridSpec(2, 5)
+    plt.subplot(gs[0, :])
+    plt.pcolormesh(c, x, u)
+    plt.xlabel('c')
+    plt.ylabel('x')
+    cbar = plt.colorbar(pad=0.05, aspect=10)
+    cbar.set_label('u(c,x)')
+    cbar.mappable.set_clim(lim1, lim2)
+    # plot u(t=const, x) cross-sections
+    c_cross_sections = [c_start, c_start+0.001, c_start+0.001*5, c_start+0.001*9, c_end]
+    for i, c_cs in enumerate(c_cross_sections):
+        plt.subplot(gs[1, i])
+        cx = np.stack([np.full(c_flat.shape, c_cs), x_flat], axis=-1) 
+        u = model.predict(cx, batch_size=num_test_samples)
+        plt.plot(x_flat, u, label='prediction')
+        if u_exact != None:
+            plt.plot(x_flat, u_exact(cx), label = 'exact')
+            plt.legend()
+        plt.title('c={}'.format(np.round(c_cs,2)))
+        plt.xlabel('x')
+        plt.ylabel('u(c,x)')
     plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)
