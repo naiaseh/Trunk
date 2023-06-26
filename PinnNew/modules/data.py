@@ -657,7 +657,7 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., 
     y_eqn = tf.zeros((n_samples, 1))
     y_phi = phi_init
 
-    return (tx_eqn, y_eqn, u_exact), (tx_init, y_phi), (tx_boundary_start, y_boundary), (tx_boundary_end, y_boundary), (tx_boundary, y_boundary), solution
+    return (tx_eqn, y_eqn, u_exact), (tx_init, y_phi), (tx_boundary_start, y_boundary), (tx_boundary_end, y_boundary), (tx_boundary, y_boundary), (solution, velocities)
 
 def simulate_c_parametrization(n_samples, x_start, length, thirdAlpha = 1., fifthBeta = 1./4., nonlinSigma = 1, a1 = 1.0e-6, aF = 0.001, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
 
@@ -726,3 +726,32 @@ def simulate_c_parametrization(n_samples, x_start, length, thirdAlpha = 1., fift
 
 
     return (cx_eqn, y_eqn), (cx_init, phi_init), (cx_boundary_start, cx_boundary_end, cx_boundary), (velocities, aS)
+
+def simulate_seq2seqAmplitude(n_samples, x_start, length, thirdAlpha = 1., fifthBeta = 1./4., nonlinSigma = 1, a1 = 1.0e-6, aF = 0.001, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+
+    
+    a_eqn = tf.random.uniform((n_samples, 1), a1, aF, dtype=dtype, seed=random_seed)
+    x_eqn = tf.random.uniform((n_samples, 1), x_start, length, dtype=dtype, seed=random_seed)
+    
+    a_init = tf.ones((n_samples, 1), dtype=dtype)*a1
+    x_init = tf.random.uniform((n_samples, 1), x_start, length, seed=random_seed, dtype=dtype)
+    ax_init = tf.concat([a_init, x_init], axis=1)
+
+    a_boundary = tf.random.uniform((n_samples, 1),a1, aF, dtype=dtype, seed=random_seed)
+    bnd_start = tf.ones((n_samples, 1), dtype=dtype)*x_start
+    bnd_end = tf.ones((n_samples, 1), dtype=dtype)*length
+    x_boundary = tf.concat([tf.reshape([x_start]*(n_samples//2),(-1,1)), tf.reshape([length]*(n_samples//2),(-1,1))], axis=0)
+    x_boundary = tf.random.shuffle(x_boundary, seed=random_seed)
+
+
+    ax_boundary_start = tf.concat([a_boundary, bnd_start], axis=1) 
+    ax_boundary_end = tf.concat([a_boundary, bnd_end], axis=1) 
+    ax_boundary = tf.concat([a_boundary, x_boundary], axis=1)
+
+    ax_eqn = tf.concat([a_eqn, x_eqn], axis=1) 
+    y_eqn = tf.zeros((n_samples, 1))
+    
+
+
+
+    return (ax_eqn, y_eqn), (ax_init), (ax_boundary_start, ax_boundary_end, ax_boundary)
