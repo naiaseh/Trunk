@@ -541,7 +541,7 @@ def kawaharaCosEqnsPos(U, a1, alpha, beta, sigma, N):
     kawaharaCosEqnsPos[N+1] = -a1 + a[1] 
     return kawaharaCosEqnsPos
 
-def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., fifthBeta = 1./4., nonlinSigma = 1, aF = 0.001, moving_frame = False, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., fifthBeta = 1./4., nonlinSigma = 1, aF = 0.001, conSteps = 1500 , moving_frame = False, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
     """
     Simulate the Kawahara equation in 1D with a given.
     Args:
@@ -578,7 +578,7 @@ def simulate_travel_kawahara(n_samples, x_start, length, time, thirdAlpha = 1., 
     
 
     c = thirdAlpha - fifthBeta
-    conSteps = 1500 # number of continuation steps
+    
     a1 = 1.0e-6 # beginning amplitude
 
     aS = np.linspace(a1,aF,conSteps) # vector of free parameter a1 (amplitudes)
@@ -727,7 +727,7 @@ def simulate_c_parametrization(n_samples, x_start, length, thirdAlpha = 1., fift
 
     return (cx_eqn, y_eqn), (cx_init, phi_init), (cx_boundary_start, cx_boundary_end, cx_boundary), (velocities, aS)
 
-def simulate_seq2seqAmplitude(n_samples, x_start, length, thirdAlpha = 1., fifthBeta = 1./4., nonlinSigma = 1, a1 = 1.0e-6, aF = 0.001, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_seq2seqAmplitude(n_samples, x_start, length, thirdAlpha = 1., fifthBeta = 1./4., nonlinSigma = 1, a1 = 1.0e-6, aF = 0.001, conSteps = 1500, compute_IC = False, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
 
     
     a_eqn = tf.random.uniform((n_samples, 1), a1, aF, dtype=dtype, seed=random_seed)
@@ -748,10 +748,36 @@ def simulate_seq2seqAmplitude(n_samples, x_start, length, thirdAlpha = 1., fifth
     ax_boundary_end = tf.concat([a_boundary, bnd_end], axis=1) 
     ax_boundary = tf.concat([a_boundary, x_boundary], axis=1)
 
+
     ax_eqn = tf.concat([a_eqn, x_eqn], axis=1) 
     y_eqn = tf.zeros((n_samples, 1))
     
+    
+    aS = np.linspace(1e-6,a1,conSteps) # vector of free parameter a1 (amplitudes)
+    velocities = np.zeros(conSteps)
+    NN = 21
+    uguess = np.zeros(NN+2)
+    uguess[0] = thirdAlpha - fifthBeta 
+    uguess[2] = 1e-6
+    V = uguess[0]
+    if compute_IC:
+        for k in range(conSteps):
+            solution = fsolve(kawaharaCosEqnsPos, uguess, args=(aS[k], thirdAlpha, fifthBeta, nonlinSigma, NN),xtol=1.e-8) 
+            soln = solution[1::] # all the As (excludes speed)
+            V = solution[0]
+            uguess = np.concatenate((V,solution[1],aS[k],solution[3::]),axis=None) #update initial guess
+            velocities[k] = solution[0]
+            
+        phi_init = soln[0]*np.cos(0.*(ax_init[:, 1:2]))
+        for i ,ai in enumerate(soln[1:]):
+            phi_init = phi_init + ai*np.cos((i+1)*(ax_init[:, 1:2]))
+
+        phi_init = phi_init-soln[0]
+        plt.plot(ax_init[:,1:], phi_init,'.')
+        plt.show()
 
 
-
-    return (ax_eqn, y_eqn), (ax_init), (ax_boundary_start, ax_boundary_end, ax_boundary)
+        return (ax_eqn, y_eqn), (ax_init, phi_init), (ax_boundary_start, ax_boundary_end, ax_boundary), solution
+    else:
+        return (ax_eqn, y_eqn), (ax_init), (ax_boundary_start, ax_boundary_end, ax_boundary)
+        

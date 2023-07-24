@@ -29,6 +29,33 @@ def create_history_dictionary() -> dict:
         LOSS_RESIDUAL: [],
         MEAN_ABSOLUTE_ERROR: []
     }
+    
+def create_history_dictionary_Fourier() -> dict:
+    """
+    Creates a history dictionary.
+
+    Returns:
+        The history dictionary.
+    """
+    return {
+        LOSS_TOTAL: [],
+        LOSS_INITIAL: [],
+        LOSS_RESIDUAL: [],
+        MEAN_ABSOLUTE_ERROR: []
+    }
+    
+def create_history_dictionary_FourierNoC() -> dict:
+    """
+    Creates a history dictionary.
+
+    Returns:
+        The history dictionary.
+    """
+    return {
+        LOSS_TOTAL: [],
+        LOSS_RESIDUAL: [],
+        MEAN_ABSOLUTE_ERROR: []
+    }
 
 def create_history_dictionary_Kawahara_custom() -> dict:
     """
@@ -2375,7 +2402,7 @@ class seq2seqAmplitudePINN(tf.keras.models.Model):
         
         
         
-        residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * ax_colloc[:,:1] * 2 * u_colloc) * u_x 
+        residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma  * 2 * u_colloc) * u_x  -  ax_colloc[:,:1] * u_x
         u_init = self.backbone(ax_init, training=training)
         u_bnd_start = self.backbone(ax_bnd_start, training=training)
         u_bnd_end = self.backbone(ax_bnd_end, training=training)
@@ -2467,3 +2494,414 @@ class seq2seqAmplitudePINN(tf.keras.models.Model):
         """
         return [self.loss_total_tracker, self.loss_residual_tracker, self.loss_initial_tracker, \
             self.loss_boundary_tracker]
+        
+class FourierKawaharaPINN_noCInput(tf.keras.models.Model):
+
+    def __init__(self, backbone, alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, c = 1., loss_residual_weight=1., loss_initial_weight=1., **kwargs):
+ 
+        super().__init__(**kwargs)
+        self.backbone = backbone
+
+        self.sigma = sigma
+        self.alpha = alpha
+        self.beta = beta
+        self.c = c
+
+        self._loss_residual_weight = tf.Variable(loss_residual_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                 name="loss_residual_weight")
+        self._loss_initial_weight = tf.Variable(loss_initial_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                name="loss_initial_weight")
+
+
+        self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
+        self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
+        self.loss_initial_tracker = tf.keras.metrics.Mean(name=LOSS_INITIAL)
+
+        # self.mae_tracker = tf.keras.metrics.MeanAbsoluteError(name=MEAN_ABSOLUTE_ERROR)
+        self.res_loss = tf.keras.losses.MeanSquaredError()
+        self.init_loss = tf.keras.losses.MeanSquaredError()
+
+    def set_loss_weights(self, loss_residual_weight, loss_initial_weight, loss_boundary_weight):
+
+        self._loss_residual_weight.assign(loss_residual_weight)
+        self._loss_initial_weight.assign(loss_initial_weight)
+        
+    def calculate_nonlinearity(self, u_colloc):
+        length = 21
+        sum1_net = np.zeros((21,1))
+        sum2_net = np.zeros((21,1))
+        u_colloc = u_colloc.numpy()
+        for k in range(length):
+            sum1 = 0.
+            sum2 = 0.
+            for n in range(k,length):
+                sum1 = sum1+u_colloc[n]*u_colloc[n-k] 
+            for n in range(0,k):
+                sum2 = sum2+u_colloc[n]*u_colloc[k-n] 
+            sum1_net[k] = sum1
+            sum2_net[k] = sum2
+        sum1_net =  tf.convert_to_tensor(sum1_net, dtype=tf.float32)
+        sum2_net = tf.convert_to_tensor(sum2_net, dtype=tf.float32)
+        return (sum1_net, sum2_net)
+
+    @tf.function
+    def call(self, inputs, training=False):
+        tf.config.run_functions_eagerly(True)
+        ck_colloc = inputs[0]
+        ck_init_c = inputs[1]
+    
+        u_colloc = self.backbone(ck_colloc, training=training)
+        (sum1_net, sum2_net)= self.calculate_nonlinearity(u_colloc)
+
+        residual = ck_colloc[:,:1] * u_colloc + self.sigma/2 * (sum1_net + sum2_net) - self.alpha * ck_colloc[:,1:]**2 * u_colloc + self.beta * ck_colloc[:,1:]**4 * u_colloc
+        u_init_c = self.backbone(ck_init_c, training=training)
+
+        return residual, u_init_c    
+    @tf.function
+    def train_step(self, data):
+        x, y = data
+        residual, u_init_c = y
+        with tf.GradientTape(persistent=False) as tape:
+            residual_pred, u_init_c_pred  = self(
+                x, 
+                training=True)
+
+            loss_residual = self.res_loss(residual, residual_pred)
+            loss_initial = self.init_loss(u_init_c, u_init_c_pred)
+            loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial 
+        gards = tape.gradient(loss_total, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gards, self.trainable_variables))
+        self.loss_initial_tracker.update_state(loss_initial)
+        self.loss_residual_tracker.update_state(loss_residual)
+        self.loss_total_tracker.update_state(loss_total)
+        # self.mae_tracker.update_state(u_colloc, u_colloc_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+    
+    def test_step(self, data):
+
+
+        x, y = data
+        residual, u_init_c= y
+        residual_pred, u_init_c_pred = self(
+            x)
+        loss_residual = self.res_loss(residual, residual_pred)
+        loss_initial = self.init_loss(u_init_c, u_init_c_pred)
+        loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial 
+
+        self.loss_initial_tracker.update_state(loss_initial)
+        self.loss_residual_tracker.update_state(loss_residual)
+        self.loss_total_tracker.update_state(loss_total)
+        # self.mae_tracker.update_state(u_colloc, u_colloc_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+    
+    def fit_custom(self, inputs: List['tf.Tensor'], outputs: List['tf.Tensor'], epochs: int, print_every: int = 1000):
+        """
+        Custom alternative to tensorflow fit function, mainly to allow inputs with different sizes. Training is done in full batches.
+        
+        Args:
+            inputs: The inputs to the model. Should be a list of tensors: [tx_colloc, tx_init, tx_bnd]
+            outputs: The outputs to the model. Should be a list of tensors: [u_colloc, residual, u_init, u_bnd]
+            epochs: The number of epochs to train for.
+            print_every: The number of epochs between printing the loss. Defaults to 1000.
+
+        Returns:
+            A dictionary containing the history of the training.
+        """
+
+        history = create_history_dictionary_Fourier()
+        
+        for epoch in range(epochs):
+            metrs = self.train_step([inputs, outputs])
+            for key, value in metrs.items():
+                history[key].append(value.numpy())
+
+            if epoch % print_every == 0:
+                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}")
+                
+            #reset metrics
+            for m in self.metrics:
+                m.reset_states()
+
+        return history
+
+    @property
+    def metrics(self):
+        """
+        Returns the metrics to track.
+        """
+        return [self.loss_total_tracker, self.loss_residual_tracker, self.loss_initial_tracker]
+    
+class FourierKawaharaPINN(tf.keras.models.Model):
+
+    def __init__(self, backbone, alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, loss_residual_weight=1., loss_initial_weight=1., **kwargs):
+ 
+        super().__init__(**kwargs)
+        self.backbone = backbone
+
+        self.sigma = sigma
+        self.alpha = alpha
+        self.beta = beta
+
+        self._loss_residual_weight = tf.Variable(loss_residual_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                 name="loss_residual_weight")
+        self._loss_initial_weight = tf.Variable(loss_initial_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                name="loss_initial_weight")
+
+
+        self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
+        self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
+        self.loss_initial_tracker = tf.keras.metrics.Mean(name=LOSS_INITIAL)
+
+        # self.mae_tracker = tf.keras.metrics.MeanAbsoluteError(name=MEAN_ABSOLUTE_ERROR)
+        self.res_loss = tf.keras.losses.MeanSquaredError()
+        self.init_loss = tf.keras.losses.MeanSquaredError()
+
+    def set_loss_weights(self, loss_residual_weight, loss_initial_weight, loss_boundary_weight):
+
+        self._loss_residual_weight.assign(loss_residual_weight)
+        self._loss_initial_weight.assign(loss_initial_weight)
+        
+    def calculate_nonlinearity(self, u_colloc):
+        length = 21
+        sum1_net = np.zeros((21,1))
+        sum2_net = np.zeros((21,1))
+        u_colloc = u_colloc.numpy()
+        for k in range(length):
+            sum1 = 0.
+            sum2 = 0.
+            for n in range(k,length):
+                sum1 = sum1+u_colloc[n]*u_colloc[n-k] 
+            for n in range(0,k):
+                sum2 = sum2+u_colloc[n]*u_colloc[k-n] 
+            sum1_net[k] = sum1
+            sum2_net[k] = sum2
+        sum1_net =  tf.convert_to_tensor(sum1_net, dtype=tf.float32)
+        sum2_net = tf.convert_to_tensor(sum2_net, dtype=tf.float32)
+        return (sum1_net, sum2_net)
+
+    @tf.function
+    def call(self, inputs, training=False):
+        tf.config.run_functions_eagerly(True)
+        ck_colloc = inputs[0]
+        ck_init_c = inputs[1]
+    
+        u_colloc = self.backbone(ck_colloc, training=training)
+        (sum1_net, sum2_net)= self.calculate_nonlinearity(u_colloc)
+
+        residual = self.c * u_colloc + self.sigma/2 * (sum1_net + sum2_net) - self.alpha * ck_colloc[:,1:]**2 * u_colloc + self.beta * ck_colloc[:,1:]**4 * u_colloc
+        u_init_c = self.backbone(ck_init_c, training=training)
+
+        return residual, u_init_c    
+    @tf.function
+    def train_step(self, data):
+        x, y = data
+        residual, u_init_c = y
+        with tf.GradientTape(persistent=False) as tape:
+            residual_pred, u_init_c_pred  = self(
+                x, 
+                training=True)
+
+            loss_residual = self.res_loss(residual, residual_pred)
+            loss_initial = self.init_loss(u_init_c, u_init_c_pred)
+            loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial 
+        gards = tape.gradient(loss_total, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gards, self.trainable_variables))
+        self.loss_initial_tracker.update_state(loss_initial)
+        self.loss_residual_tracker.update_state(loss_residual)
+        self.loss_total_tracker.update_state(loss_total)
+        # self.mae_tracker.update_state(u_colloc, u_colloc_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+    
+    def test_step(self, data):
+
+
+        x, y = data
+        residual, u_init_c= y
+        residual_pred, u_init_c_pred = self(
+            x)
+        loss_residual = self.res_loss(residual, residual_pred)
+        loss_initial = self.init_loss(u_init_c, u_init_c_pred)
+        loss_total = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial 
+
+        self.loss_initial_tracker.update_state(loss_initial)
+        self.loss_residual_tracker.update_state(loss_residual)
+        self.loss_total_tracker.update_state(loss_total)
+        # self.mae_tracker.update_state(u_colloc, u_colloc_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+    
+    def fit_custom(self, inputs: List['tf.Tensor'], outputs: List['tf.Tensor'], epochs: int, print_every: int = 1000):
+        """
+        Custom alternative to tensorflow fit function, mainly to allow inputs with different sizes. Training is done in full batches.
+        
+        Args:
+            inputs: The inputs to the model. Should be a list of tensors: [tx_colloc, tx_init, tx_bnd]
+            outputs: The outputs to the model. Should be a list of tensors: [u_colloc, residual, u_init, u_bnd]
+            epochs: The number of epochs to train for.
+            print_every: The number of epochs between printing the loss. Defaults to 1000.
+
+        Returns:
+            A dictionary containing the history of the training.
+        """
+
+        history = create_history_dictionary_Fourier()
+        
+        for epoch in range(epochs):
+            metrs = self.train_step([inputs, outputs])
+            for key, value in metrs.items():
+                history[key].append(value.numpy())
+
+            if epoch % print_every == 0:
+                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}")
+                
+            #reset metrics
+            for m in self.metrics:
+                m.reset_states()
+
+        return history
+
+    @property
+    def metrics(self):
+        """
+        Returns the metrics to track.
+        """
+        return [self.loss_total_tracker, self.loss_residual_tracker, self.loss_initial_tracker]
+    
+class FourierKawaharaPINN_noCInput(tf.keras.models.Model):
+
+    def __init__(self, backbone, alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, c = 1., loss_residual_weight=1., loss_initial_weight=1., **kwargs):
+ 
+        super().__init__(**kwargs)
+        self.backbone = backbone
+
+        self.sigma = sigma
+        self.alpha = alpha
+        self.beta = beta
+        self.c = c
+
+        self._loss_residual_weight = tf.Variable(loss_residual_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+                                                 name="loss_residual_weight")
+        # self._loss_initial_weight = tf.Variable(loss_initial_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
+        #                                         name="loss_initial_weight")
+
+
+        self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
+        self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
+        # self.loss_initial_tracker = tf.keras.metrics.Mean(name=LOSS_INITIAL)
+
+        # self.mae_tracker = tf.keras.metrics.MeanAbsoluteError(name=MEAN_ABSOLUTE_ERROR)
+        self.res_loss = tf.keras.losses.MeanSquaredError()
+        # self.init_loss = tf.keras.losses.MeanSquaredError()
+
+    def set_loss_weights(self, loss_residual_weight, loss_initial_weight, loss_boundary_weight):
+
+        self._loss_residual_weight.assign(loss_residual_weight)
+        # self._loss_initial_weight.assign(loss_initial_weight)
+        
+    def calculate_nonlinearity(self, u_colloc):
+        length = 21
+        sum1_net = np.zeros((21,1))
+        sum2_net = np.zeros((21,1))
+        u_colloc = u_colloc.numpy()
+        for k in range(length):
+            sum1 = 0.
+            sum2 = 0.
+            for n in range(k,length):
+                sum1 = sum1+u_colloc[n]*u_colloc[n-k] 
+            for n in range(0,k):
+                sum2 = sum2+u_colloc[n]*u_colloc[k-n] 
+            sum1_net[k] = sum1
+            sum2_net[k] = sum2
+        sum1_net =  tf.convert_to_tensor(sum1_net, dtype=tf.float32)
+        sum2_net = tf.convert_to_tensor(sum2_net, dtype=tf.float32)
+        return (sum1_net, sum2_net)
+
+    @tf.function
+    def call(self, inputs, training=False):
+        tf.config.run_functions_eagerly(True)
+        k_colloc = inputs[0]
+    
+        u_colloc = self.backbone(k_colloc, training=training)
+        (sum1_net, sum2_net)= self.calculate_nonlinearity(u_colloc)
+
+        residual = self.c * u_colloc + self.sigma/2 * (sum1_net + sum2_net) - self.alpha * k_colloc[:]**2 * u_colloc + self.beta * k_colloc[:]**4 * u_colloc
+
+        return residual  
+    @tf.function
+    def train_step(self, data):
+        x, y = data
+        residual = y
+        with tf.GradientTape(persistent=False) as tape:
+            residual_pred  = self(
+                x, 
+                training=True)
+
+            loss_residual = self.res_loss(residual, residual_pred)
+            # loss_initial = self.init_loss(u_init_c, u_init_c_pred)
+            loss_total = self._loss_residual_weight * loss_residual 
+        gards = tape.gradient(loss_total, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gards, self.trainable_variables))
+        # self.loss_initial_tracker.update_state(loss_initial)
+        self.loss_residual_tracker.update_state(loss_residual)
+        self.loss_total_tracker.update_state(loss_total)
+        # self.mae_tracker.update_state(u_colloc, u_colloc_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+    
+    def test_step(self, data):
+
+
+        x, y = data
+        residual = y
+        residual_pred = self(
+            x)
+        loss_residual = self.res_loss(residual, residual_pred)
+        # loss_initial = self.init_loss(u_init_c, u_init_c_pred)
+        loss_total = self._loss_residual_weight * loss_residual
+
+        # self.loss_initial_tracker.update_state(loss_initial)
+        self.loss_residual_tracker.update_state(loss_residual)
+        self.loss_total_tracker.update_state(loss_total)
+        # self.mae_tracker.update_state(u_colloc, u_colloc_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+    
+    def fit_custom(self, inputs: List['tf.Tensor'], outputs: List['tf.Tensor'], epochs: int, print_every: int = 1000):
+        """
+        Custom alternative to tensorflow fit function, mainly to allow inputs with different sizes. Training is done in full batches.
+        
+        Args:
+            inputs: The inputs to the model. Should be a list of tensors: [tx_colloc, tx_init, tx_bnd]
+            outputs: The outputs to the model. Should be a list of tensors: [u_colloc, residual, u_init, u_bnd]
+            epochs: The number of epochs to train for.
+            print_every: The number of epochs between printing the loss. Defaults to 1000.
+
+        Returns:
+            A dictionary containing the history of the training.
+        """
+
+        history = create_history_dictionary_FourierNoC()
+        
+        for epoch in range(epochs):
+            metrs = self.train_step([inputs, outputs])
+            for key, value in metrs.items():
+                history[key].append(value.numpy())
+
+            if epoch % print_every == 0:
+                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}")
+                
+            #reset metrics
+            for m in self.metrics:
+                m.reset_states()
+
+        return history
+
+    @property
+    def metrics(self):
+        """
+        Returns the metrics to track.
+        """
+        return [self.loss_total_tracker, self.loss_residual_tracker]
