@@ -20,7 +20,7 @@ k=6
 c=5
 phi = 1
 def phi_function(tx):
-    return c / (2*tf.cosh(np.sqrt(c)*(tx[:, 1:2]-c*tx[:,0:1]-2*np.pi)/2)**2)+phi
+    return c / (2*tf.cosh(np.sqrt(c)*(tx[:, 1:2]-c*tx[:,0:1]-2*np.pi)/2)**2)+phi # xc[:,1:2] = const vector, range of c = 
     
 
 def boundary_function(tx):

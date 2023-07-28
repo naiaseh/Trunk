@@ -313,7 +313,7 @@ class travelKawaharaPinn(tf.keras.Model):
     tx_bound = inputs[2]
 
     u, du_dt, du_dx, d3u_dx3, d5u_dx5 = self.input_gradient(tx_equation)
-    print('Iwas executed')
+
 
 
     
