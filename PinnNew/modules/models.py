@@ -1031,7 +1031,7 @@ class KdVPinn(tf.keras.Model):
 
 class KPPinn(tf.keras.Model):
 
-    def __init__(self, backbone, k: float = 6.0, c: float = 0., periodic_BC = False, loss_residual_weight=1.0, loss_initial_weight=1.0, \
+    def __init__(self, backbone, k: float = 6.0, c: float = 0., sig_sq: float = 3., periodic_BC = False, loss_residual_weight=1.0, loss_initial_weight=1.0, \
         loss_boundary_weight=1.0, **kwargs):
 
         super(KPPinn, self).__init__(**kwargs)
@@ -1039,6 +1039,7 @@ class KPPinn(tf.keras.Model):
         self.backbone = backbone
         self.k = k
         self.c = c
+        self.sig_sq = sig_sq
         self.periodic_BC = periodic_BC
         self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
         self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
@@ -1094,7 +1095,7 @@ class KPPinn(tf.keras.Model):
             d3u_dx3 = tape3.batch_jacobian(d2u_dx2, txy_samples)[..., 1]
         d4u_dx4 = tape4.batch_jacobian(d3u_dx3, txy_samples)[..., 1]
 
-        lhs_samples = ddu_dtdx + 6*((du_dx)**2 + u_samples * d2u_dx2) + d4u_dx4 + d2u_dy2
+        lhs_samples = ddu_dtdx + 6*((du_dx)**2 + u_samples * d2u_dx2) + d4u_dx4 + self.sig_sq * d2u_dy2
         # lhs_samples =  + 6*((du_dx)**2 + u_samples)
   
         tx_ib = tf.concat([txy_init, txy_bnd], axis=0)
