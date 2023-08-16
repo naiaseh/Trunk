@@ -7,7 +7,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.widgets import Slider, Button
 import numpy as np
 import tensorflow as tf
-from modules.models import LOSS_RESIDUAL, LOSS_BOUNDARY, LOSS_INITIAL, LOSS_HAMIL, MEAN_ABSOLUTE_ERROR
+from modules.models import LOSS_RESIDUAL, LOSS_BOUNDARY, LOSS_BOUNDARY_Y, LOSS_INITIAL, LOSS_HAMIL, MEAN_ABSOLUTE_ERROR
 
 
 def plot_wave_model_slider(model, x_start, length, time, figsize=(10,5), show=True) -> None:
@@ -399,6 +399,9 @@ def plot_training_loss(history, x_scale = "linear", y_scale = "linear", save_pat
     if LOSS_HAMIL in history:
         if len(history[LOSS_HAMIL]) > 0:
             plt.plot(history[LOSS_HAMIL], label='hamil loss', alpha=0.8)
+    if LOSS_BOUNDARY_Y in history:
+        if len(history[LOSS_BOUNDARY_Y]) > 0:
+            plt.plot(history[LOSS_BOUNDARY_Y], label='boundary loss y', alpha=0.8)
     if MEAN_ABSOLUTE_ERROR in history:
         if len(history[MEAN_ABSOLUTE_ERROR]) > 0:
             plt.plot(history[MEAN_ABSOLUTE_ERROR], label='mean absolute error', alpha = 0.8)

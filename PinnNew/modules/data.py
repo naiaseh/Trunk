@@ -179,13 +179,18 @@ def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlengt
     t_boundary = r.uniform(0, time, (n_samples, 1))
     x_boundary = np.ones((n_samples//2, 1))*xlength
     x_boundary = np.append(x_boundary, np.ones((n_samples - n_samples//2, 1))*xstart, axis=0)
-    y_boundary = np.ones((n_samples//2, 1))*ylength
-    y_boundary = np.append(y_boundary, np.ones((n_samples - n_samples//2, 1))*ystart, axis=0)
-    txy_boundary = np.concatenate((t_boundary, x_boundary, y_boundary), axis = 1)
+    y_bnd_right = np.ones((n_samples, 1))*ylength
+    y_bnd_left = np.ones((n_samples, 1))*ystart
+    txy_boundary = np.concatenate((t_boundary, x_boundary, y), axis = 1)
+    txy_boundary_y_left = np.concatenate((t_boundary, x, y_bnd_left), axis = 1)
+    txy_boundary_y_right = np.concatenate((t_boundary, x, y_bnd_right), axis = 1)
+
 
     txy_eqn = tf.convert_to_tensor(txy_eqn, dtype = dtype)
     txy_init = tf.convert_to_tensor(txy_init, dtype = dtype)
     txy_boundary = tf.convert_to_tensor(txy_boundary, dtype = dtype)
+    txy_boundary_y_left = tf.convert_to_tensor(txy_boundary_y_left, dtype = dtype)
+    txy_boundary_y_right = tf.convert_to_tensor(txy_boundary_y_right, dtype = dtype)
 
     u_eqn = tf.zeros((n_samples, 1))
     u_phi = phi_function(txy_init)
@@ -193,7 +198,7 @@ def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlengt
 
 
 
-    return (txy_eqn, u_eqn), (txy_init, u_phi), (txy_boundary, u_boundary)
+    return (txy_eqn, u_eqn), (txy_init, u_phi), (txy_boundary, u_boundary), (txy_boundary_y_left, txy_boundary_y_right)
 # def simulate_kdv(n_samples, init_function, bnd_fcn, xstart, length, time, compute_periodic = False, solver_function = None, nx = 256, nt = 201, shuffle_bnd = False, n_init=None, n_bndry=None,random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
 #     """
 #     Simulate the KdV equation in 1D with a given initial condition and Dirichlet boundary conditions.

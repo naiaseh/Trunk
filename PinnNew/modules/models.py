@@ -14,6 +14,7 @@ LOSS_RESIDUAL = "loss_residual"
 MEAN_ABSOLUTE_ERROR = "mean_absolute_error"
 LOSS_DUDT = "loss_dudt"
 LOSS_HAMIL = "loss_hamil"
+LOSS_BOUNDARY_Y = "loss_boundary_y"
 
 def create_history_dictionary() -> dict:
     """
@@ -29,7 +30,21 @@ def create_history_dictionary() -> dict:
         LOSS_RESIDUAL: [],
         MEAN_ABSOLUTE_ERROR: []
     }
-    
+def create_history_dictionary_KP() -> dict:
+    """
+    Creates a history dictionary.
+
+    Returns:
+        The history dictionary.
+    """
+    return {
+        LOSS_TOTAL: [],
+        LOSS_BOUNDARY: [],
+        LOSS_BOUNDARY_Y: [],
+        LOSS_INITIAL: [],
+        LOSS_RESIDUAL: [],
+        MEAN_ABSOLUTE_ERROR: []
+    }
 def create_history_dictionary_Fourier() -> dict:
     """
     Creates a history dictionary.
@@ -1031,7 +1046,7 @@ class KdVPinn(tf.keras.Model):
 
 class KPPinn(tf.keras.Model):
 
-    def __init__(self, backbone, k: float = 6.0, c: float = 0., sig_sq: float = 3., periodic_BC = False, loss_residual_weight=1.0, loss_initial_weight=1.0, \
+    def __init__(self, backbone, k: float = 6.0, c: float = 0., sig_sq: float = 3.,  loss_residual_weight=1.0, loss_initial_weight=1.0, \
         loss_boundary_weight=1.0, **kwargs):
 
         super(KPPinn, self).__init__(**kwargs)
@@ -1040,11 +1055,12 @@ class KPPinn(tf.keras.Model):
         self.k = k
         self.c = c
         self.sig_sq = sig_sq
-        self.periodic_BC = periodic_BC
+
         self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
         self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
         self.loss_initial_tracker = tf.keras.metrics.Mean(name=LOSS_INITIAL)
         self.loss_boundary_tracker = tf.keras.metrics.Mean(name=LOSS_BOUNDARY)
+        self.loss_boundary_y_tracker = tf.keras.metrics.Mean(name=LOSS_BOUNDARY_Y)
         self.mae_tracker = tf.keras.metrics.MeanAbsoluteError(name=MEAN_ABSOLUTE_ERROR)
         self._loss_residual_weight = tf.Variable(loss_residual_weight, trainable=False, name="loss_residual_weight", dtype=tf.keras.backend.floatx())
         self._loss_boundary_weight = tf.Variable(loss_boundary_weight, trainable=False, name="loss_boundary_weight", dtype=tf.keras.backend.floatx())
@@ -1052,6 +1068,7 @@ class KPPinn(tf.keras.Model):
         self.res_loss = tf.keras.losses.MeanSquaredError()
         self.init_loss = tf.keras.losses.MeanSquaredError()
         self.bnd_loss = tf.keras.losses.MeanSquaredError()
+        self.bnd_y_loss = tf.keras.losses.MeanSquaredError()
 
     def set_loss_weights(self, loss_residual_weight: float, loss_initial_weight: float, loss_boundary_weight: float):
         """
@@ -1073,6 +1090,8 @@ class KPPinn(tf.keras.Model):
         txy_samples = inputs[0]
         txy_init = inputs[1]
         txy_bnd = inputs[2]
+        txy_y_left = inputs[3]
+        txy_y_right = inputs[4]
         with tf.GradientTape(watch_accessed_variables=False) as tape4:
             tape4.watch(txy_samples)
             with tf.GradientTape(watch_accessed_variables=False) as tape3:
@@ -1100,10 +1119,12 @@ class KPPinn(tf.keras.Model):
   
         tx_ib = tf.concat([txy_init, txy_bnd], axis=0)
         u_ib = self.backbone(tx_ib, training=training)
+        u_y_left = self.backbone(txy_y_left, training=training)
+        u_y_right = self.backbone(txy_y_right, training=training)
         u_initial = u_ib[:tf.shape(txy_init)[0]]
         u_bnd = u_ib[tf.shape(txy_init)[0]:]
 
-        return u_samples, lhs_samples, u_initial, u_bnd
+        return u_samples, lhs_samples, u_initial, u_bnd, u_y_left, u_y_right
 
     @tf.function
     def train_step(self, data):
@@ -1121,15 +1142,16 @@ class KPPinn(tf.keras.Model):
         u_samples_exact, rhs_samples_exact, u_initial_exact, u_bnd_exact = outputs
 
         with tf.GradientTape() as tape:
-            u_samples, lhs_samples, u_initial, u_bnd = self(inputs, training=True)
+            u_samples, lhs_samples, u_initial, u_bnd, u_y_left, u_y_right = self(inputs, training=True)
 
             loss_residual = self.res_loss(rhs_samples_exact, lhs_samples)
             loss_initial = self.init_loss(u_initial_exact, u_initial)
   
             loss_boundary = self.bnd_loss(u_bnd_exact, u_bnd)
+            loss_boundary_y = self.bnd_loss(u_y_left, u_y_right)
 
             loss = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial + \
-                self._loss_boundary_weight * loss_boundary
+                self._loss_boundary_weight * (loss_boundary + loss_boundary_y)
 
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
@@ -1139,6 +1161,7 @@ class KPPinn(tf.keras.Model):
         self.loss_residual_tracker.update_state(loss_residual)
         self.loss_initial_tracker.update_state(loss_initial)
         self.loss_boundary_tracker.update_state(loss_boundary)
+        self.loss_boundary_y_tracker.update_state(loss_boundary_y)
 
         return {m.name: m.result() for m in self.metrics}
     
@@ -1146,20 +1169,23 @@ class KPPinn(tf.keras.Model):
 
         inputs, outputs = data
         u_samples_exact, rhs_samples_exact, u_initial_exact, u_bnd_exact= outputs
-        u_samples, lhs_samples, u_initial, u_bnd = self(inputs, training=False)
+        u_samples, lhs_samples, u_initial, u_bnd, u_y_left, u_y_right = self(inputs, training=False)
 
         loss_residual = self.res_loss(rhs_samples_exact, lhs_samples)
         loss_initial = self.init_loss(u_initial_exact, u_initial)
         loss_boundary = self.bnd_loss(u_bnd_exact, u_bnd)
+        loss_boundary_y = self.bnd_loss(u_y_left, u_y_right)
 
         loss = self._loss_residual_weight * loss_residual + self._loss_initial_weight * loss_initial + \
-            self._loss_boundary_weight * loss_boundary
+            self._loss_boundary_weight * (loss_boundary + loss_boundary_y)
 
         self.loss_total_tracker.update_state(loss)
         self.mae_tracker.update_state(u_samples_exact, u_samples)
         self.loss_residual_tracker.update_state(loss_residual)
         self.loss_initial_tracker.update_state(loss_initial)
         self.loss_boundary_tracker.update_state(loss_boundary)
+        self.loss_boundary_y_tracker.update_state(loss_boundary_y)
+        
 
         return {m.name: m.result() for m in self.metrics}
     
@@ -1173,7 +1199,7 @@ class KPPinn(tf.keras.Model):
             epochs: The number of epochs to train for.
             print_every: How often to print the metrics. Defaults to 1000.
         '''
-        history = create_history_dictionary()
+        history = create_history_dictionary_KP()
         
         for epoch in range(epochs):
             metrs = self.train_step([inputs, outputs])
@@ -1181,7 +1207,7 @@ class KPPinn(tf.keras.Model):
                 history[key].append(value.numpy())
 
             if epoch % print_every == 0:
-                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}, Loss Boundary: {metrs['loss_boundary']:0.4f}, MAE: {metrs['mean_absolute_error']:0.4f}")
+                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}, Loss Boundary: {metrs['loss_boundary']:0.4f}, Loss Boundary Y: {metrs['loss_boundary_y']:0.4f}, MAE: {metrs['mean_absolute_error']:0.4f}")
                 
             #reset metrics
             for m in self.metrics:
@@ -1194,7 +1220,7 @@ class KPPinn(tf.keras.Model):
         """
         Returns the metrics of the model.
         """
-        return [self.loss_total_tracker, self.loss_residual_tracker, self.loss_initial_tracker, self.loss_boundary_tracker, self.mae_tracker]
+        return [self.loss_total_tracker, self.loss_residual_tracker, self.loss_initial_tracker, self.loss_boundary_tracker, self.loss_boundary_y_tracker, self.mae_tracker]
 
 class HeatPinn(tf.keras.Model):
     """
@@ -3072,3 +3098,4 @@ class FourierKawaharaPINN_noCInput(tf.keras.models.Model):
         Returns the metrics to track.
         """
         return [self.loss_total_tracker, self.loss_residual_tracker]
+    
