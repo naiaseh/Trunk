@@ -162,7 +162,7 @@ def simulate_kdv(n_samples, phi_function, boundary_function, length, time, xstar
 
     return (tx_eqn, y_eqn), (tx_init, y_phi), (tx_boundary, y_boundary)
 
-def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlength, ystart, ylength, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlength, ystart, ylength, normalize = False, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
 
 
     r = np.random.RandomState(random_seed)
@@ -170,6 +170,8 @@ def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlengt
     x = r.uniform(xstart, xlength, (n_samples, 1))
     y = r.uniform(ystart, ylength, (n_samples, 1))
     txy_eqn = np.concatenate((t, x, y), axis = 1)
+    
+
 
     t_init = np.zeros((n_samples, 1))
     x_init = r.uniform(xstart, xlength, (n_samples, 1))
@@ -185,6 +187,14 @@ def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlengt
     txy_boundary_y_left = np.concatenate((t_boundary, x, y_bnd_left), axis = 1)
     txy_boundary_y_right = np.concatenate((t_boundary, x, y_bnd_right), axis = 1)
 
+    if normalize:
+        txy_eqn = np.concatenate((t/time, x/xlength, y/ylength), axis = 1)
+        txy_init = np.concatenate((t_init/time, x_init/xlength, y_init/ylength), axis = 1)
+        txy_boundary = np.concatenate((t_boundary/time, x_boundary/xlength, y/ylength), axis = 1)
+        txy_boundary_y_left = np.concatenate((t_boundary/time, x/xlength, y_bnd_left/ylength), axis = 1)
+        txy_boundary_y_right = np.concatenate((t_boundary, x/xlength, y_bnd_right/ylength), axis = 1)
+        
+
 
     txy_eqn = tf.convert_to_tensor(txy_eqn, dtype = dtype)
     txy_init = tf.convert_to_tensor(txy_init, dtype = dtype)
@@ -195,6 +205,8 @@ def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlengt
     u_eqn = tf.zeros((n_samples, 1))
     u_phi = phi_function(txy_init)
     u_boundary = boundary_function(txy_boundary)
+
+    
 
 
 
