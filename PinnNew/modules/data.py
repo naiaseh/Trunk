@@ -188,11 +188,14 @@ def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlengt
     txy_boundary_y_right = np.concatenate((t_boundary, x, y_bnd_right), axis = 1)
 
     if normalize:
+        u_phi = phi_function(txy_init)
         txy_eqn = np.concatenate((t/time, x/xlength, y/ylength), axis = 1)
         txy_init = np.concatenate((t_init/time, x_init/xlength, y_init/ylength), axis = 1)
         txy_boundary = np.concatenate((t_boundary/time, x_boundary/xlength, y/ylength), axis = 1)
         txy_boundary_y_left = np.concatenate((t_boundary/time, x/xlength, y_bnd_left/ylength), axis = 1)
         txy_boundary_y_right = np.concatenate((t_boundary, x/xlength, y_bnd_right/ylength), axis = 1)
+    else: 
+        u_phi = phi_function(txy_init)
         
 
 
@@ -203,7 +206,7 @@ def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlengt
     txy_boundary_y_right = tf.convert_to_tensor(txy_boundary_y_right, dtype = dtype)
 
     u_eqn = tf.zeros((n_samples, 1))
-    u_phi = phi_function(txy_init)
+    
     u_boundary = boundary_function(txy_boundary)
 
     
