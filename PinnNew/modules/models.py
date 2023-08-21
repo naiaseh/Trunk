@@ -114,6 +114,20 @@ def create_dense_model(layers: List[Union[int, "tf.keras.layers.Layer"]], activa
     outputs = tf.keras.layers.Dense(n_outputs, kernel_initializer=initializer)(x)
     return tf.keras.Model(inputs=inputs, outputs=outputs, **kwargs)
 
+def create_dense_model_Normalized(layers: List[Union[int, "tf.keras.layers.Layer"]], activation: "tf.keras.activations.Activation", \
+    initializer: "tf.keras.initializers.Initializer", n_inputs: int, n_outputs: int, normalizer, **kwargs) -> "tf.keras.Model":
+
+    
+    inputs = tf.keras.Input(shape=(n_inputs,))
+    x = normalizer(inputs)
+    for layer in layers:
+        if isinstance(layer, int):
+            x = tf.keras.layers.Dense(layer, activation=activation, kernel_initializer=initializer)(x)
+        else:
+            x = layer(x)
+    outputs = tf.keras.layers.Dense(n_outputs, kernel_initializer=initializer)(x)
+    return tf.keras.Model(inputs=inputs, outputs=outputs, **kwargs)
+
 
 class AdvectionPinn(tf.keras.Model):
     """
