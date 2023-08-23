@@ -162,58 +162,46 @@ def simulate_kdv(n_samples, phi_function, boundary_function, length, time, xstar
 
     return (tx_eqn, y_eqn), (tx_init, y_phi), (tx_boundary, y_boundary)
 
-def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlength, ystart, ylength, normalize = False, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlength, ystart, ylength, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
 
-
-    r = np.random.RandomState(random_seed)
-    t = r.uniform(0, time, (n_samples, 1))
-    x = r.uniform(xstart, xlength, (n_samples, 1))
-    y = r.uniform(ystart, ylength, (n_samples, 1))
-    txy_eqn = np.concatenate((t, x, y), axis = 1)
     
+    t = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
+    x = tf.random.uniform((n_samples, 1), xstart, xlength, dtype=dtype, seed=random_seed)
+    y = tf.random.uniform((n_samples, 1), ystart, ylength, dtype=dtype, seed=random_seed)
+    txy_eqn = tf.concat([t, x, y], axis=1)
 
+    t_init = tf.zeros((n_samples, 1), dtype=dtype)
+    txy_init = np.concatenate((t_init, x, y), axis = 1)
 
-    t_init = np.zeros((n_samples, 1))
-    x_init = r.uniform(xstart, xlength, (n_samples, 1))
-    y_init = r.uniform(ystart, ylength, (n_samples, 1))
-    txy_init = np.concatenate((t_init, x_init, y_init), axis = 1)
+    x_boundary = tf.ones((n_samples//2, 1), dtype=dtype) * xstart
+    x_boundary = tf.concat([x_boundary, xlength * tf.ones((n_samples//2, 1), dtype=dtype)], axis=0)
+    x_boundary = tf.random.shuffle(x_boundary, seed=random_seed)
+    txy_boundary_x = tf.concat([t, x_boundary, y], axis=1)
+    x_bnd_right = tf.ones((n_samples, 1), dtype=dtype) * xlength 
+    x_bnd_right = tf.concat([t, x_bnd_right, y], axis=1)
+    x_bnd_left = tf.ones((n_samples, 1), dtype=dtype) * xstart
+    x_bnd_left = tf.concat([t, x_bnd_left, y], axis=1)
 
-    t_boundary = r.uniform(0, time, (n_samples, 1))
-    x_boundary = np.ones((n_samples//2, 1))*xlength
-    x_boundary = np.append(x_boundary, np.ones((n_samples - n_samples//2, 1))*xstart, axis=0)
-    y_bnd_right = np.ones((n_samples, 1))*ylength
-    y_bnd_left = np.ones((n_samples, 1))*ystart
-    txy_boundary = np.concatenate((t_boundary, x_boundary, y), axis = 1)
-    txy_boundary_y_left = np.concatenate((t_boundary, x, y_bnd_left), axis = 1)
-    txy_boundary_y_right = np.concatenate((t_boundary, x, y_bnd_right), axis = 1)
+    y_boundary = tf.ones((n_samples//2, 1), dtype=dtype) * ystart
+    y_boundary = tf.concat([y_boundary, ylength * tf.ones((n_samples//2, 1), dtype=dtype)], axis=0)
+    y_boundary = tf.random.shuffle(y_boundary, seed=random_seed)
+    txy_boundary_y = tf.concat([t, x, y_boundary], axis=1)
+    y_bnd_right = tf.ones((n_samples, 1), dtype=dtype) * ylength
+    y_bnd_right = tf.concat([t, x, y_bnd_right], axis=1)
+    y_bnd_left = tf.ones((n_samples, 1), dtype=dtype) * ystart
+    y_bnd_left = tf.concat([t, x, y_bnd_left], axis=1)
 
-    if normalize:
-        u_phi = phi_function(txy_init)
-        txy_eqn = np.concatenate((t/time, x/xlength, y/ylength), axis = 1)
-        txy_init = np.concatenate((t_init/time, x_init/xlength, y_init/ylength), axis = 1)
-        txy_boundary = np.concatenate((t_boundary/time, x_boundary/xlength, y/ylength), axis = 1)
-        txy_boundary_y_left = np.concatenate((t_boundary/time, x/xlength, y_bnd_left/ylength), axis = 1)
-        txy_boundary_y_right = np.concatenate((t_boundary, x/xlength, y_bnd_right/ylength), axis = 1)
+    u_phi = phi_function(txy_init)
+    u_eqn = tf.zeros((n_samples, 1)) 
+    if boundary_function != None:
+        u_bnd_x = boundary_function(txy_boundary_x)
+        u_bnd_y = boundary_function(txy_boundary_y)
     else: 
-        u_phi = phi_function(txy_init)
-        
+        u_bnd_x = phi_function(txy_boundary_x)
+        u_bnd_y = phi_function(txy_boundary_y)
 
 
-    txy_eqn = tf.convert_to_tensor(txy_eqn, dtype = dtype)
-    txy_init = tf.convert_to_tensor(txy_init, dtype = dtype)
-    txy_boundary = tf.convert_to_tensor(txy_boundary, dtype = dtype)
-    txy_boundary_y_left = tf.convert_to_tensor(txy_boundary_y_left, dtype = dtype)
-    txy_boundary_y_right = tf.convert_to_tensor(txy_boundary_y_right, dtype = dtype)
-
-    u_eqn = tf.zeros((n_samples, 1))
-    
-    u_boundary = boundary_function(txy_boundary)
-
-    
-
-
-
-    return (txy_eqn, u_eqn), (txy_init, u_phi), (txy_boundary, u_boundary), (txy_boundary_y_left, txy_boundary_y_right)
+    return (txy_eqn, u_eqn), (txy_init, u_phi), (txy_boundary_x, u_bnd_x), (txy_boundary_y, u_bnd_y), (x_bnd_left, x_bnd_right), (y_bnd_left, y_bnd_right)
 # def simulate_kdv(n_samples, init_function, bnd_fcn, xstart, length, time, compute_periodic = False, solver_function = None, nx = 256, nt = 201, shuffle_bnd = False, n_init=None, n_bndry=None,random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
 #     """
 #     Simulate the KdV equation in 1D with a given initial condition and Dirichlet boundary conditions.
