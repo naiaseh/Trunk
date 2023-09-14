@@ -162,7 +162,7 @@ def simulate_kdv(n_samples, phi_function, boundary_function, length, time, xstar
 
     return (tx_eqn, y_eqn), (tx_init, y_phi), (tx_boundary, y_boundary)
 
-def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlength, ystart, ylength, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlength, ystart, ylength, n_bnds = None, n_init = None, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
 
     
     t = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
@@ -170,26 +170,38 @@ def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlengt
     y = tf.random.uniform((n_samples, 1), ystart, ylength, dtype=dtype, seed=random_seed)
     txy_eqn = tf.concat([t, x, y], axis=1)
 
-    t_init = tf.zeros((n_samples, 1), dtype=dtype)
-    txy_init = np.concatenate((t_init, x, y), axis = 1)
+    if n_bnds == None:
+        n_bnds = n_samples
+    if n_init == None:
+        n_init = n_samples
 
-    x_boundary = tf.ones((n_samples//2, 1), dtype=dtype) * xstart
-    x_boundary = tf.concat([x_boundary, xlength * tf.ones((n_samples//2, 1), dtype=dtype)], axis=0)
+    t_init = tf.zeros((n_init, 1), dtype=dtype)
+    xi = tf.random.uniform((n_init, 1), xstart, xlength, dtype=dtype, seed=random_seed)
+    yi = tf.random.uniform((n_init, 1), ystart, ylength, dtype=dtype, seed=random_seed)
+    txy_init = np.concatenate((t_init, xi, yi), axis = 1)
+
+    x_boundary = tf.ones((n_bnds//2, 1), dtype=dtype) * xstart
+    x_boundary = tf.concat([x_boundary, xlength * tf.ones((n_bnds//2, 1), dtype=dtype)], axis=0)
     x_boundary = tf.random.shuffle(x_boundary, seed=random_seed)
-    txy_boundary_x = tf.concat([t, x_boundary, y], axis=1)
-    x_bnd_right = tf.ones((n_samples, 1), dtype=dtype) * xlength 
-    x_bnd_right = tf.concat([t, x_bnd_right, y], axis=1)
-    x_bnd_left = tf.ones((n_samples, 1), dtype=dtype) * xstart
-    x_bnd_left = tf.concat([t, x_bnd_left, y], axis=1)
 
-    y_boundary = tf.ones((n_samples//2, 1), dtype=dtype) * ystart
-    y_boundary = tf.concat([y_boundary, ylength * tf.ones((n_samples//2, 1), dtype=dtype)], axis=0)
+    xb = tf.random.uniform((n_bnds, 1), xstart, xlength, dtype=dtype, seed=random_seed)
+    yb = tf.random.uniform((n_bnds, 1), ystart, ylength, dtype=dtype, seed=random_seed)
+    tb = tf.random.uniform((n_bnds, 1), 0, time, dtype=dtype, seed=random_seed)
+
+    txy_boundary_x = tf.concat([tb, x_boundary, yb], axis=1)
+    x_bnd_right = tf.ones((n_bnds, 1), dtype=dtype) * xlength 
+    x_bnd_right = tf.concat([tb, x_bnd_right, yb], axis=1)
+    x_bnd_left = tf.ones((n_bnds, 1), dtype=dtype) * xstart
+    x_bnd_left = tf.concat([tb, x_bnd_left, yb], axis=1)
+
+    y_boundary = tf.ones((n_bnds//2, 1), dtype=dtype) * ystart
+    y_boundary = tf.concat([y_boundary, ylength * tf.ones((n_bnds//2, 1), dtype=dtype)], axis=0)
     y_boundary = tf.random.shuffle(y_boundary, seed=random_seed)
-    txy_boundary_y = tf.concat([t, x, y_boundary], axis=1)
-    y_bnd_right = tf.ones((n_samples, 1), dtype=dtype) * ylength
-    y_bnd_right = tf.concat([t, x, y_bnd_right], axis=1)
-    y_bnd_left = tf.ones((n_samples, 1), dtype=dtype) * ystart
-    y_bnd_left = tf.concat([t, x, y_bnd_left], axis=1)
+    txy_boundary_y = tf.concat([tb, xb, y_boundary], axis=1)
+    y_bnd_right = tf.ones((n_bnds, 1), dtype=dtype) * ylength
+    y_bnd_right = tf.concat([tb, xb, y_bnd_right], axis=1)
+    y_bnd_left = tf.ones((n_bnds, 1), dtype=dtype) * ystart
+    y_bnd_left = tf.concat([tb, xb, y_bnd_left], axis=1)
 
     u_phi = phi_function(txy_init)
     u_eqn = tf.zeros((n_samples, 1)) 
