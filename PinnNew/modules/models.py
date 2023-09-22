@@ -3041,7 +3041,7 @@ class FourierKawaharaPINN_noCInput(tf.keras.models.Model):
                 sum1 = sum1+u_colloc[n]*u_colloc[n-k] 
             for n in range(0,k):
                 sum2 = sum2+u_colloc[n]*u_colloc[k-n] 
-            sum1_net[k] = sum1
+            sum1_net[k] =2* sum1 # factor of 2 accounts for absolute difference
             sum2_net[k] = sum2
         sum1_net =  tf.convert_to_tensor(sum1_net, dtype=tf.float32)
         sum2_net = tf.convert_to_tensor(sum2_net, dtype=tf.float32)
@@ -3049,7 +3049,7 @@ class FourierKawaharaPINN_noCInput(tf.keras.models.Model):
 
     @tf.function
     def call(self, inputs, training=False):
-        tf.config.run_functions_eagerly(True)
+        # tf.config.run_functions_eagerly(True)
         k_colloc = inputs[0]
     
         u_colloc = self.backbone(k_colloc, training=training)
@@ -3133,4 +3133,56 @@ class FourierKawaharaPINN_noCInput(tf.keras.models.Model):
         Returns the metrics to track.
         """
         return [self.loss_total_tracker, self.loss_residual_tracker]
+    
+class FourierFeatures(tf.keras.layers.Layer):
+    """
+    Fourier features layer.
+    """
+
+    def __init__(self, n_features, standard_dev = 1., **kwargs):
+        """
+        Fourier features layer.
+
+        Args:
+            n_features: The number of features to use.
+            kwargs: Additional arguments to pass to the tf.keras.layers.Layer constructor.
+        """
+        super().__init__(**kwargs)
+        self._n_features = n_features
+        self.standard_dev = standard_dev
+
+    def build(self, input_shape):
+        """
+        Builds the layer.
+
+        Args:
+            input_shape: The input shape.
+        """
+        
+        initializer = tf.keras.initializers.RandomNormal(mean=0., stddev=self.standard_dev)
+        self._w = self.add_weight(name="w", shape=(input_shape[-1], self._n_features), initializer=initializer, trainable=False)
+        self._b = self.add_weight(name="b", shape=(self._n_features,), initializer="random_normal", trainable=False)
+
+    def call(self, inputs, **kwargs):
+        """
+        Performs a forward pass.
+
+        Args:
+            inputs: The inputs to the layer.
+
+        Returns:
+            The outputs of the layer.
+        """
+        cos_feats = tf.math.cos(tf.matmul(inputs, self._w)) 
+        sin_feats = tf.math.sin(tf.matmul(inputs, self._w)) 
+        return tf.concat([cos_feats, sin_feats], axis=-1)
+
+
+    def get_config(self):
+        """
+        Returns the configuration of the layer.
+        """
+        config = super().get_config()
+        config.update({"n_features": self._n_features})
+        return config
     
