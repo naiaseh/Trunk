@@ -162,10 +162,10 @@ def simulate_kdv(n_samples, phi_function, boundary_function, length, time, xstar
 
     return (tx_eqn, y_eqn), (tx_init, y_phi), (tx_boundary, y_boundary)
 
-def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlength, ystart, ylength, n_bnds = None, n_init = None, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlength, ystart, ylength, n_bnds = None, n_init = None, tstart = 0., random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
 
     
-    t = tf.random.uniform((n_samples, 1), 0, time, dtype=dtype, seed=random_seed)
+    t = tf.random.uniform((n_samples, 1), tstart, time, dtype=dtype, seed=random_seed)
     x = tf.random.uniform((n_samples, 1), xstart, xlength, dtype=dtype, seed=random_seed)
     y = tf.random.uniform((n_samples, 1), ystart, ylength, dtype=dtype, seed=random_seed)
     txy_eqn = tf.concat([t, x, y], axis=1)
@@ -175,7 +175,7 @@ def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlengt
     if n_init == None:
         n_init = n_samples
 
-    t_init = tf.zeros((n_init, 1), dtype=dtype)
+    t_init = tf.ones((n_init, 1), dtype=dtype)*tstart
     xi = tf.random.uniform((n_init, 1), xstart, xlength, dtype=dtype, seed=random_seed)
     yi = tf.random.uniform((n_init, 1), ystart, ylength, dtype=dtype, seed=random_seed)
     txy_init = np.concatenate((t_init, xi, yi), axis = 1)
@@ -186,7 +186,7 @@ def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlengt
 
     xb = tf.random.uniform((n_bnds, 1), xstart, xlength, dtype=dtype, seed=random_seed)
     yb = tf.random.uniform((n_bnds, 1), ystart, ylength, dtype=dtype, seed=random_seed)
-    tb = tf.random.uniform((n_bnds, 1), 0, time, dtype=dtype, seed=random_seed)
+    tb = tf.random.uniform((n_bnds, 1), tstart, time, dtype=dtype, seed=random_seed)
 
     txy_boundary_x = tf.concat([tb, x_boundary, yb], axis=1)
     x_bnd_right = tf.ones((n_bnds, 1), dtype=dtype) * xlength 
