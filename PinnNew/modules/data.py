@@ -117,7 +117,7 @@ def simulate_wave(n_samples, phi_function, psi_function, boundary_function, x_st
 
     return (tx_eqn, y_eqn), (tx_init, y_phi, y_psi), (tx_boundary, y_boundary)
 
-def simulate_kdv(n_samples, phi_function, boundary_function, length, time, xstart,random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_kdv(n_samples, phi_function, boundary_function, xstart, length, t0, time, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
     """
     Simulate the heat equation in 1D with a given initial condition and Dirichlet boundary conditions.
     Args:
@@ -135,15 +135,15 @@ def simulate_kdv(n_samples, phi_function, boundary_function, length, time, xstar
 
 
     r = np.random.RandomState(random_seed)
-    t = r.uniform(0, time, (n_samples, 1))
+    t = r.uniform(t0, time, (n_samples, 1))
     x = r.uniform(xstart, length, (n_samples, 1))
     tx_eqn = np.concatenate((t, x), axis = 1)
 
-    t_init = np.zeros((n_samples, 1))
+    t_init = np.ones((n_samples, 1))*t0
     x_init = r.uniform(xstart, length, (n_samples, 1))
     tx_init = np.concatenate((t_init, x_init), axis = 1)
 
-    t_boundary = r.uniform(0, time, (n_samples, 1))
+    t_boundary = r.uniform(t0, time, (n_samples, 1))
     x_boundary = np.ones((n_samples//2, 1))*length
     x_boundary = np.append(x_boundary, np.ones((n_samples - n_samples//2, 1))*xstart, axis=0)
     tx_boundary = np.concatenate((t_boundary, x_boundary), axis = 1)
@@ -877,4 +877,34 @@ def simulate_seq2seqAmplitude(n_samples, x_start, length, thirdAlpha = 1., fifth
         return (ax_eqn, y_eqn), (ax_init, phi_init), (ax_boundary_start, ax_boundary_end, ax_boundary), solution
     else:
         return (ax_eqn, y_eqn), (ax_init), (ax_boundary_start, ax_boundary_end, ax_boundary)
+
+def simulate_BloodFlow(n_samples, phi_function_u, phi_function_eta, boundary_function_u, boundary_function_eta, xstart, length, time0, time, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+
+    r = np.random.RandomState(random_seed)
+    t = r.uniform(time0, time, (n_samples, 1))
+    x = r.uniform(xstart, length, (n_samples, 1))
+    tx_eqn = np.concatenate((t, x), axis = 1)
+
+    t_init = np.ones((n_samples, 1))*time0
+    x_init = r.uniform(xstart, length, (n_samples, 1))
+    tx_init = np.concatenate((t_init, x_init), axis = 1)
+
+    t_boundary = r.uniform(time0, time, (n_samples, 1))
+    x_boundary = np.ones((n_samples//2, 1))*length
+    x_boundary = np.append(x_boundary, np.ones((n_samples - n_samples//2, 1))*xstart, axis=0)
+    tx_boundary = np.concatenate((t_boundary, x_boundary), axis = 1)
+
+    tx_eqn = tf.convert_to_tensor(tx_eqn, dtype = dtype)
+    tx_init = tf.convert_to_tensor(tx_init, dtype = dtype)
+    tx_boundary = tf.convert_to_tensor(tx_boundary, dtype = dtype)
+
+    residuals_eqn = tf.zeros((n_samples, 1))
+    u_phi = phi_function_u(tx_init)
+    eta_phi = phi_function_eta(tx_init)
+    u_boundary = boundary_function_u(tx_boundary)
+    eta_booundary = boundary_function_eta(tx_boundary)
+
+
+
+    return (tx_eqn, residuals_eqn), (tx_init, u_phi, eta_phi), (tx_boundary, u_boundary, eta_booundary)
         

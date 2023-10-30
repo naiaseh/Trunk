@@ -15,6 +15,13 @@ MEAN_ABSOLUTE_ERROR = "mean_absolute_error"
 LOSS_DUDT = "loss_dudt"
 LOSS_HAMIL = "loss_hamil"
 LOSS_BOUNDARY_Y = "loss_boundary_y"
+LOSS_RESIDUAL1 = "loss_residual1"
+LOSS_RESIDUAL2 = "loss_residual2"
+LOSS_INITIAL_U = "loss_initial_u"
+LOSS_INITIAL_ETA = "loss_initial_eta"
+LOSS_BOUNDARY_U = "loss_boundary_u"
+LOSS_BOUNDARY_ETA = "loss_boundary_eta"
+
 
 def create_history_dictionary() -> dict:
     """
@@ -86,6 +93,23 @@ def create_history_dictionary_Kawahara_custom() -> dict:
         LOSS_RESIDUAL: [],
         LOSS_HAMIL: [],
         MEAN_ABSOLUTE_ERROR: []
+    }
+
+def create_history_dictionary_BloodFlow() -> dict:
+    """
+    Creates a history dictionary.
+
+    Returns:
+        The history dictionary.
+    """
+    return {
+        LOSS_TOTAL: [],
+        LOSS_BOUNDARY_U: [],
+        LOSS_BOUNDARY_ETA: [],
+        LOSS_INITIAL_U: [],
+        LOSS_INITIAL_ETA: [],
+        LOSS_RESIDUAL1: [],
+        LOSS_RESIDUAL2: [],
     }
 
 def create_dense_model(layers: List[Union[int, "tf.keras.layers.Layer"]], activation: "tf.keras.activations.Activation", \
@@ -3185,4 +3209,220 @@ class FourierFeatures(tf.keras.layers.Layer):
         config = super().get_config()
         config.update({"n_features": self._n_features})
         return config
+    
+class BloodFlowPinn(tf.keras.Model):
+
+    def __init__(self, backbone, r0: float = 1.0, beta_bar: float = 1., alpha_bar: float = 1., gamma: float = 1., kappa: float = 1. , loss_residual_weight=1.0, loss_initial_weight=1.0, \
+        loss_boundary_weight=1.0, PBC_x = False, PBC_y = True, **kwargs):
+
+        super(BloodFlowPinn, self).__init__(**kwargs)
+
+        self.backbone = backbone
+        self.kappa = kappa
+        self.r0 = r0 
+        self.alpha_bar = alpha_bar
+        self.beta_bar = beta_bar
+        self.gamma = gamma
+
+
+        self.PBC_x = PBC_x
+        self.PBC_y = PBC_y
+
+        self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
+        self.loss_residual1_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL1)
+        self.loss_residual2_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL2)
+    
+        self.loss_initial_u_tracker = tf.keras.metrics.Mean(name=LOSS_INITIAL_U)
+        self.loss_initial_eta_tracker = tf.keras.metrics.Mean(name=LOSS_INITIAL_ETA)
+        self.loss_boundary_u_tracker = tf.keras.metrics.Mean(name=LOSS_BOUNDARY_U)
+        self.loss_boundary_eta_tracker = tf.keras.metrics.Mean(name=LOSS_BOUNDARY_ETA)
+  
+       
+        # self.mae_tracker = tf.keras.metrics.MeanAbsoluteError(name=MEAN_ABSOLUTE_ERROR)
+        self._loss_residual_weight = tf.Variable(loss_residual_weight, trainable=False, name="loss_residual_weight", dtype=tf.keras.backend.floatx())
+        self._loss_boundary_weight = tf.Variable(loss_boundary_weight, trainable=False, name="loss_boundary_weight", dtype=tf.keras.backend.floatx())
+        self._loss_initial_weight = tf.Variable(loss_initial_weight, trainable=False, name="loss_initial_weight", dtype=tf.keras.backend.floatx())
+        self.res1_loss = tf.keras.losses.MeanSquaredError()
+        self.res2_loss = tf.keras.losses.MeanSquaredError()
+
+        self.init_u_loss = tf.keras.losses.MeanSquaredError()
+        self.init_eta_loss = tf.keras.losses.MeanSquaredError()
+        self.bnd_u_loss = tf.keras.losses.MeanSquaredError()
+        self.bnd_eta_loss = tf.keras.losses.MeanSquaredError()
+
+    def set_loss_weights(self, loss_residual_weight: float, loss_initial_weight: float, loss_boundary_weight: float):
+        """
+        Sets the loss weights.
+
+        Args:
+            loss_residual_weight: The weight of the residual loss.
+            loss_initial_weight: The weight of the initial loss.
+            loss_boundary_weight: The weight of the boundary loss.
+        """
+        self._loss_residual_weight.assign(loss_residual_weight)
+        self._loss_boundary_weight.assign(loss_boundary_weight)
+        self._loss_initial_weight.assign(loss_initial_weight)
+
+
+    @tf.function
+    def call(self, inputs, training=False):
+
+        tx_samples = inputs[0]
+        tx_init = inputs[1]
+
+        tx_x_bnd = inputs[2]
+
+
+
+        with tf.GradientTape(watch_accessed_variables=False, persistent=True) as tape4:
+            tape4.watch(tx_samples)
+            with tf.GradientTape(watch_accessed_variables=False, persistent=True) as tape3:
+                tape3.watch(tx_samples)
+                with tf.GradientTape(watch_accessed_variables=False, persistent=True)  as tape2:
+                    tape2.watch(tx_samples)
+
+                    with tf.GradientTape(watch_accessed_variables=False, persistent=True) as tape1:
+                        tape1.watch(tx_samples)
+                        u_eta = self.backbone(tx_samples, training=training)
+                        u_samples = u_eta[...,0]
+                        eta_samples = u_eta[...,1]
+
+                    first_order_u = tape1.batch_jacobian(tf.reshape(u_samples,[-1,1]), tx_samples)
+                    du_dt = first_order_u[..., 0]
+                    du_dx = first_order_u[..., 1]
+
+                    first_order_eta = tape1.batch_jacobian(tf.reshape(eta_samples,[-1,1]), tx_samples)
+                    deta_dt = first_order_eta[..., 0]
+                    deta_dx = first_order_eta[..., 1]
+
+
+                d2u_dx2 = tape2.batch_jacobian(du_dx, tx_samples)[..., 1]
+          
+            dd2u_dx2dt = tape3.batch_jacobian(d2u_dx2, tx_samples)[..., 0]
+
+ 
+
+   
+
+        lhs1_samples = deta_dt + 1/2 * self.r0 * du_dx + 1/2 * eta_samples * du_dx + deta_dx * u_samples
+        lhs2_samples = du_dt + self.beta_bar * deta_dx + u_samples * du_dx - (4*self.alpha_bar + self.r0) * self.r0/8 * dd2u_dx2dt + self.kappa * u_samples - self.gamma * self.beta_bar * self.r0/2 * d2u_dx2
+  
+
+  
+
+        u_eta_initial = self.backbone(tx_init, training=training)
+        u_initial = u_eta_initial[...,0]
+        eta_initial = u_eta_initial[...,1]
+
+        u_eta_bnd =  self.backbone(tx_x_bnd, training=training)
+        u_bnd = u_eta_bnd[...,0]
+        eta_bnd = u_eta_bnd[...,1]
+
+
+
+
+        return lhs1_samples, lhs2_samples, u_initial, eta_initial, u_bnd, eta_bnd
+    
+    @tf.function
+    def train_step(self, data):
+        """
+        Performs a training step.
+
+        Args:
+            data: The data to train on. First input is the samples, second input is the initial, \
+                and third input is the boundary data. First output is the exact solution for the samples, \
+                second output is the exact rhs for the samples, third output is the exact solution for the initial, \
+                and fourth output is the exact solution for the boundary.
+        """
+
+        inputs, outputs = data
+        rhs_samples_exact, u_initial_exact, eta_initial_exact, u_bnd_exact, eta_bnd_exact = outputs
+
+        with tf.GradientTape() as tape:
+            lhs1_samples, lhs2_samples, u_initial, eta_initial, u_bnd, eta_bnd = self(inputs, training=True)
+
+            loss_residual1 = self.res1_loss(rhs_samples_exact, lhs1_samples)
+            loss_residual2 = self.res2_loss(rhs_samples_exact, lhs2_samples)
+            loss_initial_u = self.init_u_loss(u_initial_exact, u_initial)
+            loss_initial_eta = self.init_eta_loss(eta_initial_exact, eta_initial)
+            loss_bnd_u = self.bnd_u_loss(u_bnd_exact, u_bnd)
+            loss_bnd_eta = self.bnd_eta_loss(eta_bnd_exact, eta_bnd)
+            
+
+            loss = self._loss_residual_weight * (loss_residual1 + loss_residual2) + self._loss_initial_weight * (loss_initial_u + \
+                loss_initial_eta) + self._loss_boundary_weight * (loss_bnd_u+ loss_bnd_eta)
+
+        gradients = tape.gradient(loss, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+
+        self.loss_total_tracker.update_state(loss)
+        # self.mae_tracker.update_state(u_samples_exact, u_samples)
+        self.loss_residual1_tracker.update_state(loss_residual1)
+        self.loss_residual2_tracker.update_state(loss_residual2)
+        self.loss_initial_u_tracker.update_state(loss_initial_u)
+        self.loss_initial_eta_tracker.update_state(loss_initial_eta)
+        self.loss_boundary_u_tracker.update_state(loss_bnd_u)
+        self.loss_boundary_eta_tracker.update_state(loss_bnd_eta)
+
+        return {m.name: m.result() for m in self.metrics}
+    
+    def test_step(self, data):
+
+        inputs, outputs = data
+        rhs_samples_exact, u_initial_exact, eta_initial_exact, u_bnd_exact, eta_bnd_exact = outputs
+        lhs1_samples, lhs2_samples, u_initial, eta_initial, u_bnd, eta_bnd  = self(inputs, training=False)
+
+        loss_residual1 = self.res1_loss(rhs_samples_exact, lhs1_samples)
+        loss_residual2 = self.res2_loss(rhs_samples_exact, lhs2_samples)
+        loss_initial_u = self.init_u_loss(u_initial_exact, u_initial)
+        loss_initial_eta = self.init_eta_loss(eta_initial_exact, eta_initial)
+        loss_bnd_u = self.bnd_u_loss(u_bnd_exact, u_bnd)
+        loss_bnd_eta = self.bnd_eta_loss(eta_bnd_exact, eta_bnd)
+
+        loss = self._loss_residual_weight * (loss_residual1 + loss_residual2) + self._loss_initial_weight * (loss_initial_u + \
+                loss_initial_eta) + self._loss_boundary_weight * (loss_bnd_u+ loss_bnd_eta)
+        self.loss_total_tracker.update_state(loss)
+        # self.mae_tracker.update_state(u_samples_exact, u_samples)
+        self.loss_residual1_tracker.update_state(loss_residual1)
+        self.loss_residual2_tracker.update_state(loss_residual2)
+        self.loss_initial_u_tracker.update_state(loss_initial_u)
+        self.loss_initial_eta_tracker.update_state(loss_initial_eta)
+        self.loss_boundary_u_tracker.update_state(loss_bnd_u)
+        self.loss_boundary_eta_tracker.update_state(loss_bnd_eta)
+        
+
+        return {m.name: m.result() for m in self.metrics}
+    
+    def fit_custom(self, inputs: List['tf.Tensor'], outputs: List['tf.Tensor'], epochs: int, print_every: int = 1000):
+        '''
+        Custom alternative to tensorflow fit function, mainly to allow inputs with different sizes. Training is done in full batches.
+
+        Args:
+            data: The data to train on. Should be a list of tensors: [tx_colloc, tx_init, tx_bnd]
+            outputs: The outputs to train on. Should be a list of tensors: [u_colloc, residual, u_init, u_bnd]. u_colloc is only used for the MAE metric.
+            epochs: The number of epochs to train for.
+            print_every: How often to print the metrics. Defaults to 1000.
+        '''
+        history = create_history_dictionary_BloodFlow()
+        
+        for epoch in range(epochs):
+            metrs = self.train_step([inputs, outputs])
+            for key, value in metrs.items():
+                history[key].append(value.numpy())
+
+            if epoch % print_every == 0:
+                tf.print(f"Epoch {epoch}, Loss Residual u: {metrs['loss_residual1']:0.4f}, Loss Residual eta: {metrs['loss_residual2']:0.4f}, Loss Initial u: {metrs['loss_initial_u']:0.4f}, Loss Initial eta: {metrs['loss_initial_eta']:0.4f}, Loss Boundary u: {metrs['loss_boundary_u']:0.4f}, Loss Boundary eta: {metrs['loss_boundary_eta']:0.4f}")
+                
+            #reset metrics
+            for m in self.metrics:
+                m.reset_states()
+
+        return history
+
+    @property
+    def metrics(self):
+        """
+        Returns the metrics of the model.
+        """
+        return [self.loss_total_tracker, self.loss_residual1_tracker, self.loss_residual2_tracker, self.loss_initial_u_tracker, self.loss_initial_eta_tracker, self.loss_boundary_u_tracker, self.loss_boundary_eta_tracker]
     
