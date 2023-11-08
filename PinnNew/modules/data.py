@@ -117,35 +117,42 @@ def simulate_wave(n_samples, phi_function, psi_function, boundary_function, x_st
 
     return (tx_eqn, y_eqn), (tx_init, y_phi, y_psi), (tx_boundary, y_boundary)
 
-def simulate_kdv(n_samples, phi_function, boundary_function, xstart, length, t0, time, random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+def simulate_kdv(n_samples, phi_function, boundary_function, xstart, length, t0, time, n_init = None, n_bnd = None, random_seed = 42, dtype=tf.float32) \
+ -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
     """
-    Simulate the heat equation in 1D with a given initial condition and Dirichlet boundary conditions.
+    Simulate the KdV equation in 1D with a given initial condition and zero boundary conditions.
     Args:
         n_samples (int): number of samples to generate
         phi_function (function): Function that returns the initial condition of the heat equation on u.
-        boundary_function (function): Function that returns the boundary condition of the heat equation on u.
+        boundary_function (function): Function that returns the boundary condition of the KdV equation on u.
         length (float): Length of the domain.
+        xstart (float): start of the domain.
+        t0 (float): start time
         time (float): Time frame of the simulation.
         random_seed (int, optional): Random seed for reproducibility. Defaults to 42.
         dtype (tf.dtype, optional): Data type of the samples. Defaults to tf.float32.
 
     Returns:
-        tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]: Samples of the heat equation. Returns a tuple of tensors (equation_samples, initial_samples, boundary_samples).
+        tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]: 
+        (tx_eqn, y_eqn), (tx_init, y_phi), (tx_boundary, y_boundary).
     """
 
-
+    if n_init == None:
+        n_init = n_samples
+    if n_bnd == None:
+        n_bnd = n_samples
     r = np.random.RandomState(random_seed)
     t = r.uniform(t0, time, (n_samples, 1))
     x = r.uniform(xstart, length, (n_samples, 1))
     tx_eqn = np.concatenate((t, x), axis = 1)
 
-    t_init = np.ones((n_samples, 1))*t0
-    x_init = r.uniform(xstart, length, (n_samples, 1))
+    t_init = np.ones((n_init, 1))*t0
+    x_init = r.uniform(xstart, length, (n_init, 1))
     tx_init = np.concatenate((t_init, x_init), axis = 1)
 
-    t_boundary = r.uniform(t0, time, (n_samples, 1))
-    x_boundary = np.ones((n_samples//2, 1))*length
-    x_boundary = np.append(x_boundary, np.ones((n_samples - n_samples//2, 1))*xstart, axis=0)
+    t_boundary = r.uniform(t0, time, (n_bnd, 1))
+    x_boundary = np.ones((n_bnd//2, 1))*length
+    x_boundary = np.append(x_boundary, np.ones((n_bnd - n_bnd//2, 1))*xstart, axis=0)
     tx_boundary = np.concatenate((t_boundary, x_boundary), axis = 1)
 
     tx_eqn = tf.convert_to_tensor(tx_eqn, dtype = dtype)
@@ -155,10 +162,6 @@ def simulate_kdv(n_samples, phi_function, boundary_function, xstart, length, t0,
     y_eqn = tf.zeros((n_samples, 1))
     y_phi = phi_function(tx_init)
     y_boundary = boundary_function(tx_boundary)
-
-    # y_eqn = tf.convert_to_tensor(y_eqn, dtype = dtype)
-    # y_phi = tf.convert_to_tensor(y_phi, dtype = dtype)
-    # y_boundary = tf.convert_to_tensor(y_boundary, dtype = dtype)
 
     return (tx_eqn, y_eqn), (tx_init, y_phi), (tx_boundary, y_boundary)
 
