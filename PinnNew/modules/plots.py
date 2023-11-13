@@ -155,7 +155,7 @@ def plot_burgers_model(model, save_path = None, show=True) -> None:
     if show:
         plt.show()
 
-def plot_KdV_model(model, xstart,length, time, lim1=-1, lim2 = 1, c= 0., u_exact = None, save_path = None, show=True) -> None:
+def plot_KdV_model(model, xstart,length, time, lim1=-1, lim2 = 1, c= 0., t0 = None, u_exact = None, save_path = None, show=True) -> None:
     """
     Plot the model predictions for the kdv equation.
     Args:
@@ -166,8 +166,10 @@ def plot_KdV_model(model, xstart,length, time, lim1=-1, lim2 = 1, c= 0., u_exact
         u_exact: the exact solution
         save_path: The path to save the plot to.
     """
+    if t0 == None:
+        t0 = 0.
     num_test_samples = 1000
-    t_flat = np.linspace(0, time, num_test_samples)
+    t_flat = np.linspace(t0, time, num_test_samples)
     x_flat = np.linspace(xstart, length, num_test_samples)
     t, x = np.meshgrid(t_flat, x_flat)
     tx = np.stack([t.flatten(), x.flatten()-c*t.flatten()], axis=-1) #
@@ -185,7 +187,7 @@ def plot_KdV_model(model, xstart,length, time, lim1=-1, lim2 = 1, c= 0., u_exact
     cbar.set_label('u(t,x)')
     cbar.mappable.set_clim(lim1, lim2)
     # plot u(t=const, x) cross-sections
-    t_cross_sections = [0, time/4, time/2, 3*time/4, time]
+    t_cross_sections = [t0, time/4, time/2, 3*time/4, time]
     for i, t_cs in enumerate(t_cross_sections):
         plt.subplot(gs[1, i])
         tx = np.stack([np.full(t_flat.shape, t_cs), x_flat-c*t_cs], axis=-1) #
