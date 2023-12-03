@@ -5,6 +5,7 @@ This file contains the PINN models for the Advection, Burgers, Schrodinger, Pois
 from typing import Tuple, List, Union, Callable
 import tensorflow as tf
 import numpy as np
+from keras import backend as K
 import sys
 
 LOSS_TOTAL = "loss_total"
@@ -112,6 +113,8 @@ def create_history_dictionary_BloodFlow() -> dict:
         LOSS_RESIDUAL2: [],
     }
 
+
+
 def create_dense_model(layers: List[Union[int, "tf.keras.layers.Layer"]], activation: "tf.keras.activations.Activation", \
     initializer: "tf.keras.initializers.Initializer", n_inputs: int, n_outputs: int, **kwargs) -> "tf.keras.Model":
     """
@@ -135,7 +138,7 @@ def create_dense_model(layers: List[Union[int, "tf.keras.layers.Layer"]], activa
             x = tf.keras.layers.Dense(layer, activation=activation, kernel_initializer=initializer)(x)
         else:
             x = layer(x)
-    outputs = tf.keras.layers.Dense(n_outputs, kernel_initializer=initializer)(x)
+    outputs = tf.keras.layers.Dense(n_outputs, kernel_initializer=initializer)(x) #notice the only difference is no activation
     return tf.keras.Model(inputs=inputs, outputs=outputs, **kwargs)
 
 def create_dense_model_Normalized(layers: List[Union[int, "tf.keras.layers.Layer"]], activation: "tf.keras.activations.Activation", \
@@ -917,6 +920,8 @@ class KdVPinn(tf.keras.Model):
         self.res_loss = tf.keras.losses.MeanSquaredError()
         self.init_loss = tf.keras.losses.MeanSquaredError()
         self.bnd_loss = tf.keras.losses.MeanSquaredError()
+        self.grad_res = []
+        self.grad_bcs = []
 
     def set_loss_weights(self, loss_residual_weight: float, loss_initial_weight: float, loss_boundary_weight: float):
         """
@@ -1015,6 +1020,13 @@ class KdVPinn(tf.keras.Model):
         self.loss_initial_tracker.update_state(loss_initial)
         self.loss_boundary_tracker.update_state(loss_boundary)
 
+        self.grad_res = []
+        self.grad_bcs = []
+
+        for i in range(len(self.backbone.layers) - 1):
+            self.grad_res.append(tf.gradients(loss_boundary, self.backbone.weights[i])[0])
+            self.grad_bcs.append(tf.gradients(loss_residual, self.backbone.weights[i])[0])
+
         return {m.name: m.result() for m in self.metrics}
     
     def test_step(self, data):
@@ -1067,7 +1079,7 @@ class KdVPinn(tf.keras.Model):
                 history[key].append(value.numpy())
 
             if epoch % print_every == 0:
-                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}, Loss Boundary: {metrs['loss_boundary']:0.4f}, MAE: {metrs['mean_absolute_error']:0.4f}")
+                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.10f}, Loss Initial: {metrs['loss_initial']:0.10f}, Loss Boundary: {metrs['loss_boundary']:0.10f}, MAE: {metrs['mean_absolute_error']:0.10f}")
                 
             #reset metrics
             for m in self.metrics:
@@ -1266,7 +1278,7 @@ class KPPinn(tf.keras.Model):
                 history[key].append(value.numpy())
 
             if epoch % print_every == 0:
-                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}, Loss Boundary: {metrs['loss_boundary']:0.4f}, Loss Boundary Y: {metrs['loss_boundary_y']:0.4f}, MAE: {metrs['mean_absolute_error']:0.4f}")
+                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.10f}, Loss Initial: {metrs['loss_initial']:0.10f}, Loss Boundary: {metrs['loss_boundary']:0.10f}, Loss Boundary Y: {metrs['loss_boundary_y']:0.10f}, MAE: {metrs['mean_absolute_error']:0.10f}")
                 
             #reset metrics
             for m in self.metrics:
@@ -2404,7 +2416,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
                 history[key].append(value.numpy())
 
             if epoch % print_every == 0:
-                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.4f}, Loss Initial: {metrs['loss_initial']:0.4f}, Loss Boundary: {metrs['loss_boundary']:0.4f}, Loss Hamil: {metrs['loss_hamil']:0.4f}, MAE: {metrs['mean_absolute_error']:0.4f}")
+                tf.print(f"Epoch {epoch}, Loss Residual: {metrs['loss_residual']:0.10f}, Loss Initial: {metrs['loss_initial']:0.10f}, Loss Boundary: {metrs['loss_boundary']:0.10f}, Loss Hamil: {metrs['loss_hamil']:0.4f}, MAE: {metrs['mean_absolute_error']:0.4f}")
                 
             #reset metrics
             for m in self.metrics:
