@@ -1110,7 +1110,7 @@ class KdVBurgersPinn(tf.keras.Model):
             alpha: diffusive term coefficient
             beta: dispersive term coefficient
         """
-        super(KdVPinn, self).__init__(**kwargs)
+        super(KdVBurgersPinn, self).__init__(**kwargs)
 
         self.backbone = backbone
         self.gamma = gamma
