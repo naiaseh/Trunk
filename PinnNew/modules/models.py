@@ -891,7 +891,7 @@ class KdVPinn(tf.keras.Model):
     """
     A model that solves the KdV equation.
     """
-    def __init__(self, backbone, k: float = 6.0, c: float = 0., periodic_BC = False, loss_residual_weight=1.0, loss_initial_weight=1.0, \
+    def __init__(self, backbone, k: float = 6.0, c: float = 0., beta: float=1., periodic_BC = False, loss_residual_weight=1.0, loss_initial_weight=1.0, \
         loss_boundary_weight=1.0, **kwargs):
         """
         Initializes the model.
