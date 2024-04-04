@@ -909,6 +909,7 @@ class KdVPinn(tf.keras.Model):
         self.backbone = backbone
         self.k = k
         self.c = c
+        self.beta = beta
         self.periodic_BC = periodic_BC
         self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
         self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
@@ -973,7 +974,7 @@ class KdVPinn(tf.keras.Model):
             d2u_dx2 = tape2.batch_jacobian(du_dx, tx_samples)[..., 1]
         d3u_dx3 = tape3.batch_jacobian(d2u_dx2, tx_samples)[..., 1]
 
-        lhs_samples = du_dt + (self.k * u_samples) * du_dx  + d3u_dx3
+        lhs_samples = du_dt + (self.k * u_samples) * du_dx  + self.beta * d3u_dx3
 
         tx_ib = tf.concat([tx_init, tx_bnd], axis=0)
         u_ib = self.backbone(tx_ib, training=training)
