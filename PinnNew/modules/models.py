@@ -1100,7 +1100,7 @@ class KdVBurgersPinn(tf.keras.Model):
     """
     A model that solves the KdV-B equation.
     """
-    def __init__(self, backbone, gamma: float = 1.0, alpha: float = 1., beta: float = 1., loss_residual_weight=1.0, loss_initial_weight=1.0, \
+    def __init__(self, backbone, gamma: float = 1.0, alpha: float = 1., beta: float = 1., c: float = 1., loss_residual_weight=1.0, loss_initial_weight=1.0, \
         loss_boundary_weight=1.0, **kwargs):
         """
         Initializes the model.
@@ -1117,6 +1117,7 @@ class KdVBurgersPinn(tf.keras.Model):
         self.gamma = gamma
         self.alpha = alpha
         self.beta = beta
+        self.c = c
 
         self.loss_total_tracker = tf.keras.metrics.Mean(name=LOSS_TOTAL)
         self.loss_residual_tracker = tf.keras.metrics.Mean(name=LOSS_RESIDUAL)
@@ -1163,22 +1164,23 @@ class KdVBurgersPinn(tf.keras.Model):
         tx_init = inputs[1]
         tx_bnd = inputs[2]
 
-        with tf.GradientTape(watch_accessed_variables=False) as tape3:
-            tape3.watch(tx_samples)
-            with tf.GradientTape(watch_accessed_variables=False) as tape2:
-                tape2.watch(tx_samples)
+        # with tf.GradientTape(watch_accessed_variables=False) as tape3:
+            # tape3.watch(tx_samples)
+        with tf.GradientTape(watch_accessed_variables=False) as tape2:
+            tape2.watch(tx_samples)
 
-                with tf.GradientTape(watch_accessed_variables=False) as tape1:
-                    tape1.watch(tx_samples)
-                    u_samples = self.backbone(tx_samples, training=training)
+            with tf.GradientTape(watch_accessed_variables=False) as tape1:
+                tape1.watch(tx_samples)
+                u_samples = self.backbone(tx_samples, training=training)
 
-                first_order = tape1.batch_jacobian(u_samples, tx_samples)
-                du_dt = first_order[..., 0]
-                du_dx = first_order[..., 1]
-            d2u_dx2 = tape2.batch_jacobian(du_dx, tx_samples)[..., 1]
-        d3u_dx3 = tape3.batch_jacobian(d2u_dx2, tx_samples)[..., 1]
+            first_order = tape1.batch_jacobian(u_samples, tx_samples)
+            du_dt = first_order[..., 0]
+            du_dx = first_order[..., 1]
+        d2u_dx2 = tape2.batch_jacobian(du_dx, tx_samples)[..., 1]
+        # d3u_dx3 = tape3.batch_jacobian(d2u_dx2, tx_samples)[..., 1]
 
-        lhs_samples = du_dt + (self.gamma * u_samples) * du_dx - self.alpha * d2u_dx2 + self.beta * d3u_dx3
+        # lhs_samples = du_dt + (self.gamma * u_samples) * du_dx - self.alpha * d2u_dx2 + self.beta * d3u_dx3
+        lhs_samples = du_dt + self.c * u_samples +  self.gamma/2. * u_samples**2- self.alpha * du_dx + self.beta * d2u_dx2
 
         tx_ib = tf.concat([tx_init, tx_bnd], axis=0)
         u_ib = self.backbone(tx_ib, training=training)
