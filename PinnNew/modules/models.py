@@ -1164,23 +1164,24 @@ class KdVBurgersPinn(tf.keras.Model):
         tx_init = inputs[1]
         tx_bnd = inputs[2]
 
-        # with tf.GradientTape(watch_accessed_variables=False) as tape3:
-            # tape3.watch(tx_samples)
-        with tf.GradientTape(watch_accessed_variables=False) as tape2:
-            tape2.watch(tx_samples)
+        with tf.GradientTape(watch_accessed_variables=False) as tape3:
+            tape3.watch(tx_samples)
+            with tf.GradientTape(watch_accessed_variables=False) as tape2:
+                tape2.watch(tx_samples)
 
-            with tf.GradientTape(watch_accessed_variables=False) as tape1:
-                tape1.watch(tx_samples)
-                u_samples = self.backbone(tx_samples, training=training)
+                with tf.GradientTape(watch_accessed_variables=False) as tape1:
+                    tape1.watch(tx_samples)
+                    u_samples = self.backbone(tx_samples, training=training)
 
-            first_order = tape1.batch_jacobian(u_samples, tx_samples)
-            du_dt = first_order[..., 0]
-            du_dx = first_order[..., 1]
-        d2u_dx2 = tape2.batch_jacobian(du_dx, tx_samples)[..., 1]
-        # d3u_dx3 = tape3.batch_jacobian(d2u_dx2, tx_samples)[..., 1]
+                first_order = tape1.batch_jacobian(u_samples, tx_samples)
+                du_dt = first_order[..., 0]
+                du_dx = first_order[..., 1]
+            d2u_dx2 = tape2.batch_jacobian(du_dx, tx_samples)[..., 1]
+        d3u_dx3 = tape3.batch_jacobian(d2u_dx2, tx_samples)[..., 1]
 
         # lhs_samples = du_dt + (self.gamma * u_samples) * du_dx - self.alpha * d2u_dx2 + self.beta * d3u_dx3
-        lhs_samples = du_dt + self.c * u_samples +  self.gamma/2. * u_samples**2- self.alpha * du_dx + self.beta * d2u_dx2
+        lhs_samples = du_dt + self.c * du_dx + (self.gamma * u_samples) * du_dx - self.alpha * d2u_dx2 + self.beta * d3u_dx3
+        
 
         tx_ib = tf.concat([tx_init, tx_bnd], axis=0)
         u_ib = self.backbone(tx_ib, training=training)
