@@ -224,16 +224,16 @@ def simulate_mkdv(n_samples, phi_function, boundary_function, xstart, length, t0
     r = np.random.RandomState(random_seed)
     t = r.uniform(t0, time, (n_samples, 1))
     x = r.uniform(xstart, length, (n_samples, 1))
-    xt_eqn = np.concatenate((t-d_0*x, d_2*x), axis = 1)
+    xt_eqn = np.concatenate((d_2*x, t-d_0*x), axis = 1)
 
     x_init = np.ones((n_init, 1))*xstart
     t_init = r.uniform(t0, time, (n_init, 1))
-    xt_init = np.concatenate((t_init-d_0*x_init, d_2* x_init), axis = 1)
+    xt_init = np.concatenate((d_2* x_init, t_init-d_0*x_init), axis = 1)
 
     x_boundary = r.uniform(xstart, length, (n_bnd, 1))
     t_boundary = np.ones((n_bnd//2, 1))*time
     t_boundary = np.append(t_boundary, np.ones((n_bnd - n_bnd//2, 1))*t0, axis=0)
-    xt_boundary = np.concatenate((t_boundary-d_0*x_boundary, d_2*x_boundary), axis = 1)
+    xt_boundary = np.concatenate((d_2*x_boundary, t_boundary-d_0*x_boundary), axis = 1)
 
     xt_eqn = tf.convert_to_tensor(xt_eqn, dtype = dtype)
     xt_init = tf.convert_to_tensor(xt_init, dtype = dtype)
