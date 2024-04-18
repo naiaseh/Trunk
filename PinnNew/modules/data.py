@@ -213,6 +213,38 @@ def simulate_kdvburgers(n_samples, phi_function, boundary_function, xstart, leng
 
     return (tx_eqn, y_eqn), (tx_init, y_phi), (tx_boundary, y_boundary)
 
+def simulate_mkdv(n_samples, phi_function, boundary_function, xstart, length, t0, time, d_0 =0., n_init = None, n_bnd = None, random_seed = 42, dtype=tf.float32) \
+ -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
+
+
+    if n_init == None:
+        n_init = n_samples
+    if n_bnd == None:
+        n_bnd = n_samples
+    r = np.random.RandomState(random_seed)
+    t = r.uniform(t0, time, (n_samples, 1))
+    x = r.uniform(xstart, length, (n_samples, 1))
+    xt_eqn = np.concatenate((x-d_0*t, t), axis = 1)
+
+    x_init = np.ones((n_init, 1))*xstart
+    t_init = r.uniform(t0, time, (n_init, 1))
+    xt_init = np.concatenate((x_init-d_0*t_init, t_init), axis = 1)
+
+    x_boundary = r.uniform(xstart, length, (n_bnd, 1))
+    t_boundary = np.ones((n_bnd//2, 1))*time
+    t_boundary = np.append(t_boundary, np.ones((n_bnd - n_bnd//2, 1))*t0, axis=0)
+    xt_boundary = np.concatenate((x_boundary-d_0*t_boundary, t_boundary), axis = 1)
+
+    xt_eqn = tf.convert_to_tensor(xt_eqn, dtype = dtype)
+    xt_init = tf.convert_to_tensor(xt_init, dtype = dtype)
+    xt_boundary = tf.convert_to_tensor(xt_boundary, dtype = dtype)
+
+    y_eqn = tf.zeros((n_samples, 1))
+    y_phi = phi_function(xt_init)
+    y_boundary = boundary_function(xt_boundary)
+
+    return (xt_eqn, y_eqn), (xt_init, y_phi), (xt_boundary, y_boundary)
+
 def simulate_KP(n_samples, phi_function, boundary_function, time, xstart, xlength, ystart, ylength, n_bnds = None, n_init = None, tstart = 0., random_seed = 42, dtype=tf.float32) -> tuple[tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]]:
 
     
