@@ -2662,11 +2662,9 @@ class travelKawaharaPINN(tf.keras.models.Model):
         tx_bnd_start = inputs[2]
         tx_bnd_end = inputs[3]
         tx_bnd = inputs[4]
-        if self.t_var == True:
-            t_ind = 0
-            x_ind = 1
-        else:
-            x_ind = 0
+        t_ind = 0
+        x_ind = 1
+
         with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape5:
             with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape4:
                 with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape3:
@@ -2676,6 +2674,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
                             u_colloc = self.backbone(tx_colloc, training=training)
                         first_order = tape.batch_jacobian(u_colloc, tx_colloc)
                         u_x = first_order[..., x_ind]
+                        u_t = first_order[..., t_ind]
 
                     u_xx = tape2.batch_jacobian(u_x, tx_colloc)[..., x_ind]
                 u_xxx = tape3.batch_jacobian(u_xx, tx_colloc)[..., x_ind]
@@ -2683,11 +2682,9 @@ class travelKawaharaPINN(tf.keras.models.Model):
         u_5x = tape5.batch_jacobian(u_4x, tx_colloc)[..., x_ind]
         
         
-        if self.t_var == True:
-            u_t = first_order[..., t_ind]
-            residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x + self.c * u_x - u_t
-        else:
-            residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x + self.c * u_x
+
+        residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x + self.c * u_x - u_t
+
         u_init = self.backbone(tx_init, training=training)
         # residual = self.backbone(tx_colloc, training = training) 
         u_bnd_start = self.backbone(tx_bnd_start, training=training)
