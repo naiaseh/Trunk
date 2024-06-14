@@ -2583,7 +2583,7 @@ class TransportEquation(tf.keras.models.Model):
 
 class travelKawaharaPINN(tf.keras.models.Model):
 
-    def __init__(self, backbone, c: float = 0. , alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, loss_residual_weight=1., loss_initial_weight=1., loss_boundary_weight=1.,loss_hamil_weight=1., PBC = True, **kwargs):
+    def __init__(self, backbone, c: float = 0. , alpha: float = 1.0, beta: float = 1/4 ,sigma: float = 1.0, t_var = False, loss_residual_weight=1., loss_initial_weight=1., loss_boundary_weight=1.,loss_hamil_weight=1., PBC = True, **kwargs):
         """
         Travelling Kawahara model.
 
@@ -2603,6 +2603,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
         self.beta = beta
         self.c = c
         self.PBC = PBC
+        self.t_var = t_var
 
 
         self._loss_residual_weight = tf.Variable(loss_residual_weight, trainable=False, dtype=tf.keras.backend.floatx(), \
@@ -2661,6 +2662,11 @@ class travelKawaharaPINN(tf.keras.models.Model):
         tx_bnd_start = inputs[2]
         tx_bnd_end = inputs[3]
         tx_bnd = inputs[4]
+        if self.t_var == True:
+            t_ind = 0
+            x_ind = 1
+        else:
+            x_ind = 0
         with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape5:
             with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape4:
                 with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape3:
@@ -2669,20 +2675,19 @@ class travelKawaharaPINN(tf.keras.models.Model):
                             tape.watch(tx_colloc)
                             u_colloc = self.backbone(tx_colloc, training=training)
                         first_order = tape.batch_jacobian(u_colloc, tx_colloc)
-                        u_t = first_order[..., 0]
-                        u_x = first_order[..., 1]
-                    u_xx = tape2.batch_jacobian(u_x, tx_colloc)[..., 1]
-                u_xxx = tape3.batch_jacobian(u_xx, tx_colloc)[..., 1]
-            u_4x = tape4.batch_jacobian(u_xxx, tx_colloc)[..., 1]
-        u_5x = tape5.batch_jacobian(u_4x, tx_colloc)[..., 1]
+                        u_x = first_order[..., x_ind]
+
+                    u_xx = tape2.batch_jacobian(u_x, tx_colloc)[..., x_ind]
+                u_xxx = tape3.batch_jacobian(u_xx, tx_colloc)[..., x_ind]
+            u_4x = tape4.batch_jacobian(u_xxx, tx_colloc)[..., x_ind]
+        u_5x = tape5.batch_jacobian(u_4x, tx_colloc)[..., x_ind]
         
         
-        
-        # residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc + self.c)* u_x 
-        # residual = u_xxx + u_x + tf.math.cos(tx_colloc[:,1:])
-        # residual = + self.alpha * u_xxx - self.c * u_x 
-        # amplitude = tf.math.abs(tf.reduce_max(u_colloc)-tf. reduce_min(u_colloc))
-        residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x + (self.c * u_x - u_t)
+        if self.t_var == True:
+            u_t = first_order[..., t_ind]
+            residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x + self.c * u_x - u_t
+        else:
+            residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x + self.c * u_x
         u_init = self.backbone(tx_init, training=training)
         # residual = self.backbone(tx_colloc, training = training) 
         u_bnd_start = self.backbone(tx_bnd_start, training=training)
