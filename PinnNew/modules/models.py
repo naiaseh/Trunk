@@ -264,7 +264,7 @@ class AdvectionPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -484,7 +484,7 @@ class PoissonPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -694,7 +694,7 @@ class SchrodingerPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -876,7 +876,7 @@ class BurgersPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history        
 
@@ -1085,7 +1085,7 @@ class KdVPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -1277,7 +1277,7 @@ class KdVBurgersPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -1464,7 +1464,7 @@ class mKdVPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -1665,7 +1665,7 @@ class KPPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -1849,7 +1849,7 @@ class HeatPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -2028,7 +2028,7 @@ class WavePinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -2222,7 +2222,7 @@ class ReactionDiffusionPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
         
@@ -2393,7 +2393,7 @@ class KleinGordonEquation(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
     
@@ -2569,7 +2569,7 @@ class TransportEquation(tf.keras.models.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -2666,9 +2666,13 @@ class travelKawaharaPINN(tf.keras.models.Model):
         x_ind = 1
 
         with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape5:
+            tape5.watch(tx_colloc)
             with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape4:
+                tape4.watch(tx_colloc)
                 with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape3:
+                    tape3.watch(tx_colloc)
                     with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape2:
+                        tape2.watch(tx_colloc)
                         with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape:
                             tape.watch(tx_colloc)
                             u_colloc = self.backbone(tx_colloc, training=training)
@@ -2682,7 +2686,6 @@ class travelKawaharaPINN(tf.keras.models.Model):
         u_5x = tape5.batch_jacobian(u_4x, tx_colloc)[..., x_ind]
         
         
-
         residual = + self.alpha * u_xxx + (self.beta) * u_5x + (self.sigma * 2 * u_colloc) * u_x + self.c * u_x - u_t
 
         u_init = self.backbone(tx_init, training=training)
@@ -2805,7 +2808,7 @@ class travelKawaharaPINN(tf.keras.models.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -2979,7 +2982,7 @@ class cParametrizationPINN(tf.keras.models.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -3132,7 +3135,7 @@ class seq2seqAmplitudePINN(tf.keras.models.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -3271,7 +3274,7 @@ class FourierKawaharaPINN_noCInput(tf.keras.models.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -3408,7 +3411,7 @@ class FourierKawaharaPINN(tf.keras.models.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -3544,7 +3547,7 @@ class FourierKawaharaPINN_noCInput(tf.keras.models.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
@@ -3812,7 +3815,7 @@ class BloodFlowPinn(tf.keras.Model):
                 
             #reset metrics
             for m in self.metrics:
-                m.reset_states()
+                m.reset_state()
 
         return history
 
